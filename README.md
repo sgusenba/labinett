@@ -98,4 +98,5 @@ Die Windows-`.exe` baut GitHub Actions bei jedem Push auf `main`
 - Die Karte muss aufrecht liegen; für eine gedrehte Kamera gibt es
   `"extra": {"drehung": 1..3}` (90°-Schritte).
 - Stark überlappende Löcher werden über die Fläche aufgeteilt; das Ziel von
-  5 Schüssen hilft dabei. Solche Schüsse kurz prüfen.
+  5 Schüssen hilft dabei. Ihr Mittelpunkt ist ungenauer, daher gilt für sie die
+  doppelte Toleranz (`toleranz_mm`) bis „prüfen“.

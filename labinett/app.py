@@ -89,7 +89,7 @@ class Zustand:
             except ErkennungsFehler as e:
                 fehler = e
                 continue
-            ergebnisse.append((bild, erk, werte_aus(erk.positionen, geo)))
+            ergebnisse.append((bild, erk, werte_aus(erk.positionen, geo, geteilt=erk.geteilt)))
         if not ergebnisse:
             raise HTTPException(422, str(fehler or "Kein Bild"))
         bild, erk, karte, einig = abstimmen(ergebnisse)

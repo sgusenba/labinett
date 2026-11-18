@@ -12,6 +12,16 @@ def test_karte_ok():
     assert k.status == "ok" and k.nummer_quelle == "manuell"
 
 
+def test_geteilte_loecher_haben_doppelte_toleranz():
+    # 1,5 Toleranzen außerhalb der Berührungsschwelle zur Linie 16/12
+    v = 3 - (GEO.schwelle + 1.5 * GEO.toleranz)
+    einzeln = werte_aus([(1.5, v)], GEO)
+    geteilt = werte_aus([(1.5, v)], GEO, geteilt=[True])
+    assert einzeln.schuesse[0].felder == geteilt.schuesse[0].felder == (16,)
+    assert not einzeln.schuesse[0].unsicher
+    assert geteilt.schuesse[0].unsicher
+
+
 def test_karte_zu_wenige_schuesse_und_ohne_nummer():
     k = werte_aus(FUENF[:4], GEO)
     assert k.status == "pruefen"

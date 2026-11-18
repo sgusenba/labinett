@@ -40,6 +40,9 @@ class Erkennung:
     loch_flaeche_rel: float  # gemessene / erwartete Fläche aller Löcher
     hinweise: list[str] = field(default_factory=list)
     normbild: np.ndarray | None = None
+    # je Position: stammt aus einem aufgeteilten Fleck (überlappende Löcher).
+    # Deren Mittelpunkt ist ungenauer, siehe ``karte.TOLERANZ_FAKTOR_GETEILT``.
+    geteilt: list[bool] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------- Gitter
@@ -196,7 +199,8 @@ def _loch_maske(norm_grau: np.ndarray, loch_r_px: float) -> np.ndarray:
 
 def _teile_flecken(
     maske: np.ndarray, einzel_flaeche: float, soll: int
-) -> tuple[list[tuple[float, float]], float]:
+) -> tuple[list[tuple[float, float, bool]], float]:
+    """Lochmittelpunkte (x, y, geteilt) im Normbild und relative Lochfläche."""
     n, lab, st, cen = cv2.connectedComponentsWithStats(maske)
     H, W = maske.shape
     flecken = []
@@ -225,17 +229,17 @@ def _teile_flecken(
             break
         i = min(kandidaten, key=lambda f: f[1] / anz[f[0]])[0]
         anz[i] -= 1
-    punkte: list[tuple[float, float]] = []
+    punkte: list[tuple[float, float, bool]] = []
     for i, _ in flecken:
         k = anz[i]
         if k == 1:
-            punkte.append((float(cen[i][0]), float(cen[i][1])))
+            punkte.append((float(cen[i][0]), float(cen[i][1]), False))
             continue
         ys, xs = np.nonzero(lab == i)
         daten = np.column_stack([xs, ys]).astype(np.float32)
         krit = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 50, 0.2)
         _, _, zentren = cv2.kmeans(daten, k, None, krit, 5, cv2.KMEANS_PP_CENTERS)
-        punkte.extend((float(c[0]), float(c[1])) for c in zentren)
+        punkte.extend((float(c[0]), float(c[1]), True) for c in zentren)
     return punkte, gesamt / (einzel_flaeche * max(1, len(punkte)))
 
 
@@ -256,21 +260,24 @@ def erkenne(bild_bgr: np.ndarray, geo: Geometrie, drehung: int = 0) -> Erkennung
     lmaske = _loch_maske(norm, loch_r_px)
     pix, rel = _teile_flecken(lmaske, einzel, SCHUESSE_PRO_KARTE)
 
-    positionen = [
-        (_pixel_zu_raster(px, u_lagen), _pixel_zu_raster(py, v_lagen)) for px, py in pix
+    kandidaten = [
+        (_pixel_zu_raster(px, u_lagen), _pixel_zu_raster(py, v_lagen), g) for px, py, g in pix
     ]
     # Lochpositionen außerhalb der Normbild-Ränder (Kartenrand/Unterlage) verwerfen
-    positionen = [(u, v) for u, v in positionen if -RAND * 0.8 < u < 5 + RAND * 0.8 and -RAND * 0.8 < v < 5 + RAND * 0.8]
-    if len(positionen) > SCHUESSE_PRO_KARTE:
+    grenze = RAND * 0.8
+    kandidaten = [p for p in kandidaten if -grenze < p[0] < 5 + grenze and -grenze < p[1] < 5 + grenze]
+    if len(kandidaten) > SCHUESSE_PRO_KARTE:
         # zuerst Kandidaten weit außerhalb des Rasters verwerfen
-        def aussen(p: tuple[float, float]) -> float:
-            u, v = p
+        def aussen(p: tuple[float, float, bool]) -> float:
+            u, v, _ = p
             return max(-u, u - 5, -v, v - 5, 0.0)
 
-        positionen.sort(key=aussen)
-        while len(positionen) > SCHUESSE_PRO_KARTE and aussen(positionen[-1]) > 0.25:
-            positionen.pop()
-    positionen.sort(key=lambda p: (p[0] + p[1], p[0] - p[1]))
+        kandidaten.sort(key=aussen)
+        while len(kandidaten) > SCHUESSE_PRO_KARTE and aussen(kandidaten[-1]) > 0.25:
+            kandidaten.pop()
+    kandidaten.sort(key=lambda p: (p[0] + p[1], p[0] - p[1]))
+    positionen = [(u, v) for u, v, _ in kandidaten]
+    geteilt = [g for _, _, g in kandidaten]
 
     hinweise = []
     if len(positionen) != SCHUESSE_PRO_KARTE:
@@ -280,7 +287,12 @@ def erkenne(bild_bgr: np.ndarray, geo: Geometrie, drehung: int = 0) -> Erkennung
             f"Kartengröße passt nicht zum Raster ({abw:.0%} Abweichung) – Raute evtl. falsch erkannt"
         )
     return Erkennung(
-        ecken_bild=ecken, positionen=positionen, loch_flaeche_rel=rel, hinweise=hinweise, normbild=norm
+        ecken_bild=ecken,
+        positionen=positionen,
+        loch_flaeche_rel=rel,
+        hinweise=hinweise,
+        normbild=norm,
+        geteilt=geteilt,
     )
 
 
