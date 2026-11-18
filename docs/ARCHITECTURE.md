@@ -117,7 +117,7 @@ Die magischen Zahlen (`.045*S`, `.058`, `.09`, Klemmen …) wandern dokumentiert
 
 - **Lieber nachfragen als falsch speichern:** Die Schwelle für „sicher“ wird an echten Karten so eingestellt, dass praktisch keine falschen Nummern automatisch gespeichert werden. Am Anfang wird öfter nachgefragt.
 - **Modell:** Start mit EMNIST-Ziffern (Handschrift, ~280 000 Beispiele), mit Verzerrung, Strichstärke, Unschärfe und Rauschen aufbereitet, damit es zu Kugelschreiber/Filzstift auf Karton passt. Sobald echte Karten durchlaufen, speichert die App die Ausschnitte samt bestätigter Nummer in `%APPDATA%\Nikolo\samples\`; daraus wird nachtrainiert. Das Modell ist austauschbar, ohne Code zu ändern.
-- **Plausibilität:** optional eine Teilnehmerliste (CSV mit gültigen Nummern) oder ein Nummernbereich in den Einstellungen. Eine gelesene Nummer, die es nicht gibt, gilt als unsicher; bei knappen Fällen gewinnt die gültige Variante.
+- **Nummernbereich 1–250** (Standard, einstellbar; optional zusätzlich eine Teilnehmerliste). Die Nummer wird nicht Ziffer für Ziffer festgelegt, sondern es gewinnt die **wahrscheinlichste gültige Nummer**: Aus den Wahrscheinlichkeiten je Ziffer (und je Trennungsvariante) wird für jede Nummer 1–250 eine Gesamtwahrscheinlichkeit berechnet. Das schließt viele Fehler von selbst aus, z. B. dreistellig muss mit 1 oder 2 beginnen, nach 2 kommt höchstens 5, keine führende 0. Sicherheit = Anteil der besten Nummer an allen gültigen; liegen zwei gültige Nummern knapp beieinander (z. B. 17 und 77), wird nachgefragt. Eine eingetippte Nummer außerhalb des Bereichs löst eine Warnung aus.
 - **Hilfe am Papier:** Ziffern groß, ohne Berührung des Kreisrings und ohne Durchstreichen schreiben lassen. Das bringt mehr als jedes Modell.
 
 Fallback, wenn kein Kreis gefunden wird: Feld leer, Fokus ins Eingabefeld, Ausschnitt des Fotos rund um das Raster zur Orientierung.
@@ -238,8 +238,4 @@ ID;Datum;Schützennummer;Nummer erkannt;UUID;Schuss 1;Schuss 2;Schuss 3;Schuss 4
 - Schritt 1: Schützennummer automatisch lesen, sonst eintippen. QR/UUID ist vorbereitet, kommt später.
 - CSV-Speicherort ist einstellbar.
 
-- Schützennummer ist handgeschrieben, höchstens 3-stellig.
-
-## Offen
-
-- Gibt es eine Teilnehmerliste oder einen festen Nummernbereich, gegen den geprüft werden kann?
+- Schützennummer ist handgeschrieben, höchstens 3-stellig, gültig sind 1–250.
