@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Nikolo-Scheibe auswerten (Live)</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);--bg:#e9eeeb;--fg:#13201a;--card:#fbfcfb;--mut:#5a6b62;--acc:#17624a;--line:#c9d4ce;--hit:#d6336c}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#101814;--fg:#e4ece7;--card:#18241e;--mut:#93a69b;--acc:#5fc4a0;--line:#2a3b32;--hit:#ff6b9a}}
+:root[data-theme="dark"]{--bg:#101814;--fg:#e4ece7;--card:#18241e;--mut:#93a69b;--acc:#5fc4a0;--line:#2a3b32;--hit:#ff6b9a}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 Georgia,"Times New Roman",serif}
+main{max-width:1100px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:28px;margin:0 0 4px}
+p.sub{margin:0 0 16px;color:var(--mut);max-width:62ch}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px}
+button,label.btn{font:inherit;background:var(--acc);color:var(--card);border:0;border-radius:6px;padding:8px 14px;cursor:pointer}
+button.alt{background:transparent;color:var(--fg);border:1px solid var(--line)}
+button:focus-visible,label.btn:focus-within{outline:2px solid var(--hit);outline-offset:2px}
+input[type=file]{position:absolute;opacity:0;width:1px;height:1px}
+.grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(260px,1fr);gap:16px}
+@media (max-width:760px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px}
+#wrap{min-height:200px;display:flex;align-items:center;justify-content:center;color:var(--mut);text-align:center}
+canvas{max-width:100%;height:auto;display:block;border-radius:4px;cursor:crosshair}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
+tr.sel{background:color-mix(in srgb,var(--hit) 15%,transparent)}
+tbody tr{cursor:pointer}
+.total{font-size:34px;font-weight:700;margin:10px 0 0;color:var(--acc)}
+.msg{color:var(--mut);font-size:14px;margin:8px 0}
+.warn{color:var(--hit)}
+.tol{display:flex;gap:8px;align-items:center;font-size:14px;color:var(--mut)}
+#uuid{font:13px/1.4 ui-monospace,Consolas,monospace;width:100%;box-sizing:border-box;padding:4px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)}
+.shooter{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+#snum{font:inherit;font-size:26px;font-weight:700;width:4.2em;padding:2px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)}
+#scrop{height:64px;width:auto;max-width:140px;border:1px solid var(--line);border-radius:4px}
+.row-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px}
+.conf{display:inline-block;min-width:3.4em;text-align:center;padding:1px 8px;border-radius:10px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--fg)}
+.c-hi{background:color-mix(in srgb,#1f9d63 35%,var(--card))}.c-mid{background:color-mix(in srgb,#e0a100 40%,var(--card))}.c-lo{background:color-mix(in srgb,#d6336c 40%,var(--card))}
+</style>
+</head>
+<body>
+<main>
+<h1>Nikolo-Scheibe auswerten</h1>
+<p class="sub">Foto der Scheibe laden. Die Seite begradigt das Foto, erkennt das Raster und die Einschüsse, zählt pro Schuss alle berührten Felder zusammen und bildet das Gesamtergebnis. Alles läuft lokal im Browser.</p>
+<div class="bar">
+  <label class="btn">Foto wählen<input type="file" id="file" accept="image/*"></label>
+  <label class="btn">Foto aufnehmen<input type="file" id="cam" accept="image/*" capture="environment"></label>
+  <button class="alt" id="livebtn" type="button">Live-Modus</button><button id="snap" type="button" hidden>Aufnehmen &amp; prüfen</button>
+  <button class="alt" id="man">Ecken manuell setzen</button>
+  <button class="alt" id="redo">Schüsse neu erkennen</button>
+  <span class="tol">Anriss-Toleranz (negativ = strenger, positiv = großzügiger) <input type="range" id="tol" min="-0.05" max="0.1" step="0.005" value="-0.015"><span id="tolv">-0,015</span></span>
+</div>
+<div class="grid">
+  <div class="card"><div id="wrap"><span id="hint">Foto hierher ziehen oder oben wählen. Die Karte sollte aufrecht liegen (23 oben).</span><canvas id="cv" hidden></canvas></div>
+  <div class="msg" id="info"></div></div>
+  <div class="card">
+    <div class="shooter"><div><div class="msg" style="margin:0">Schützennummer</div><input id="snum" inputmode="numeric" maxlength="4" placeholder="–" aria-label="Schützennummer"> <span id="sconf"></span></div><canvas id="scrop" width="1" height="1"></canvas><button class="alt" id="sread" type="button">Neu lesen</button></div>
+    <div class="msg" id="sstat" style="margin-top:0"></div>
+    <div class="msg" style="margin:8px 0 0">UUID (aus dem QR-Code)</div><input id="uuid" placeholder="–" aria-label="UUID aus dem QR-Code" spellcheck="false" autocomplete="off">
+    <div class="msg" id="qstat" style="margin-top:2px"></div>
+    <table><thead><tr><th>Schuss</th><th>Felder</th><th>Wert</th><th>Sicherheit</th></tr></thead><tbody id="rows"></tbody></table>
+    <div class="msg">Klick ins Bild: Schuss hinzufügen. Klick auf einen Schuss: entfernen.<br>Sicherheit: wie weit der Lochrand von der nächsten Linie entfernt ist. Grün ab 85 %, gelb ab 60 %, rot darunter. Bei rot lohnt ein Blick ins Bild.</div>
+    <div class="total" id="total">–</div>
+    <div class="row-actions"><button id="add" type="button">Zur Liste hinzufügen</button></div>
+  </div>
+</div>
+<div class="card" style="margin-top:16px"><h2 style="font-size:20px;margin:0 0 8px">Gespeicherte Karten</h2>
+<div class="msg" style="margin-top:0">Die Liste liegt nur in diesem Browser auf diesem Gerät (localStorage). Wird der Browserspeicher gelöscht, ist sie weg.</div>
+<table><thead><tr><th>Datum</th><th>UUID</th><th>Nr.</th><th>Schüsse</th><th>Gesamt</th><th></th></tr></thead><tbody id="lrows"></tbody></table>
+<div class="row-actions"><span class="msg" id="lsum" style="margin:6px 0"></span><button class="alt" id="lcsv" type="button">CSV herunterladen</button><button class="alt" id="lclear" type="button">Liste leeren</button></div>
+<div class="msg" id="lmsg" role="status"></div></div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+<script>
+const G=[[23,4,19,2,25],[5,10,17,11,3],[20,16,1,15,18],[8,12,14,13,7],[24,6,21,9,22]];
+const S=120,OFF=S/2,N=6*S,Q=[[0,0],[5,0],[5,5],[0,5]];
+const $=id=>document.getElementById(id), cv=$('cv'), ctx=cv.getContext('2d');
+let orig=null,K=1,circle=null,readTok=0,base=document.createElement('canvas'), nc=document.createElement('canvas'), W=0,H=0,src,lum,corners=null,hb,lum2,shots=[],res=[],manual=false,pick=[],hl=-1,view='orig';
+
+function homography(a,b){const A=[];for(let i=0;i<4;i++){const[x,y]=a[i],[u,v]=b[i];A.push([x,y,1,0,0,0,-u*x,-u*y,u]);A.push([0,0,0,x,y,1,-v*x,-v*y,v]);}
+ for(let c=0;c<8;c++){let p=c;for(let r=c+1;r<8;r++)if(Math.abs(A[r][c])>Math.abs(A[p][c]))p=r;[A[c],A[p]]=[A[p],A[c]];
+  for(let r=0;r<8;r++){if(r===c)continue;const f=A[r][c]/A[c][c];for(let k=c;k<9;k++)A[r][k]-=f*A[c][k];}}
+ return A.map((row,i)=>row[8]/row[i]);}
+function ap(h,x,y){const d=h[6]*x+h[7]*y+1;return[(h[0]*x+h[1]*y+h[2])/d,(h[3]*x+h[4]*y+h[5])/d];}
+function otsu(h,total){let sum=0;for(let i=0;i<256;i++)sum+=i*h[i];let sB=0,wB=0,best=-1,t=128;for(let i=0;i<256;i++){wB+=h[i];const wF=total-wB;if(!wB||!wF)continue;sB+=i*h[i];const d=sB/wB-(sum-sB)/wF,v=wB*wF*d*d;if(v>best){best=v;t=i;}}return t;}
+function label(m,w,h){const lab=new Int32Array(w*h),comps=[],st=[];
+ for(let p=0;p<w*h;p++){if(!m[p]||lab[p])continue;const id=comps.length+1,c={id,n:0,sx:0,sy:0,bd:false,T:[0,1e9],B:[0,-1],L:[1e9,0],R:[-1,0]};lab[p]=id;st.push(p);
+  while(st.length){const q=st.pop(),x=q%w,y=(q-x)/w;c.n++;c.sx+=x;c.sy+=y;if(x===0||y===0||x===w-1||y===h-1)c.bd=true;
+   if(y<c.T[1])c.T=[x,y];if(y>c.B[1])c.B=[x,y];if(x<c.L[0])c.L=[x,y];if(x>c.R[0])c.R=[x,y];
+   for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const nx=x+dx,ny=y+dy;if(nx<0||ny<0||nx>=w||ny>=h)continue;const r=ny*w+nx;if(m[r]&&!lab[r]){lab[r]=id;st.push(r);}}}
+  comps.push(c);}
+ return{comps,lab};}
+function integral(m,w,h){const I=new Int32Array((w+1)*(h+1));for(let y=0;y<h;y++){let s=0;for(let x=0;x<w;x++){s+=m[y*w+x];I[(y+1)*(w+1)+x+1]=I[y*(w+1)+x+1]+s;}}return I;}
+function win(I,w,h,x,y,r){const x0=Math.max(0,x-r),y0=Math.max(0,y-r),x1=Math.min(w,x+r+1),y1=Math.min(h,y+r+1),q=w+1;return I[y1*q+x1]-I[y0*q+x1]-I[y1*q+x0]+I[y0*q+x0];}
+function opening(m,w,h,r){const f=(2*r+1)**2,I=integral(m,w,h),E=new Uint8Array(w*h);
+ for(let y=0;y<h;y++)for(let x=0;x<w;x++)E[y*w+x]=win(I,w,h,x,y,r)===f?1:0;
+ const J=integral(E,w,h),D=new Uint8Array(w*h);for(let y=0;y<h;y++)for(let x=0;x<w;x++)D[y*w+x]=win(J,w,h,x,y,r)>0?1:0;return D;}
+
+function load(file){stopLive();const im=new Image();im.onload=()=>useImage(im);im.src=URL.createObjectURL(file);}
+function useImage(im){const k=Math.min(1,1100/Math.max(im.width,im.height));W=Math.round(im.width*k);H=Math.round(im.height*k);
+ orig=im;K=im.width/W;base.width=W;base.height=H;const bc=base.getContext('2d');bc.drawImage(im,0,0,W,H);
+ src=bc.getImageData(0,0,W,H).data;lum=new Uint8Array(W*H);for(let i=0;i<W*H;i++)lum[i]=.299*src[4*i]+.587*src[4*i+1]+.114*src[4*i+2];
+ cv.hidden=false;$('hint').hidden=true;manual=false;pick=[];shots=[];corners=null;detectGrid();}
+
+function detectGrid(lv){
+ let h=new Array(256).fill(0);for(let i=0;i<W*H;i++)h[lum[i]]++;const t1=otsu(h,W*H);
+ const bright=new Uint8Array(W*H);for(let i=0;i<W*H;i++)bright[i]=lum[i]>t1?1:0;
+ const L1=label(bright,W,H);let paper=L1.comps.reduce((a,b)=>b.n>a.n?b:a,{n:0,id:-1});
+ const non=new Uint8Array(W*H);for(let i=0;i<W*H;i++)non[i]=L1.lab[i]===paper.id?0:1;
+ const L2=label(non,W,H),out=new Set(L2.comps.filter(c=>c.bd).map(c=>c.id));
+ const dark=new Uint8Array(W*H);h=new Array(256).fill(0);let cnt=0;
+ for(let i=0;i<W*H;i++)if(!out.has(L2.lab[i])){dark[i]=1;h[lum[i]]++;cnt++;}
+ const t2=Math.min(150,Math.max(60,otsu(h,cnt)));for(let i=0;i<W*H;i++)dark[i]=dark[i]&&lum[i]<t2?1:0;
+ const Lg=label(dark,W,H),g=Lg.comps.reduce((a,b)=>b.n>a.n?b:a,{n:0});
+ if(!lv){circle=g.n>0?findCircle(L1,paper,g,t2):null;readNumber();readQR();}
+ if(g.n>0&&g.R[0]-g.L[0]>W*.15&&g.B[1]-g.T[1]>H*.15){corners=findCorners(Lg,g);if(corners)normalize();}
+ if(!corners){view='orig';cv.width=W;cv.height=H;$('info').innerHTML='<span class="warn">Raster nicht erkannt. Bitte „Ecken manuell setzen“ nutzen.</span>';draw();}}
+
+// Raute füllen, dünne Anhängsel (Stiftstriche) per Opening entfernen, die 4 Außenkanten als Geraden anpassen und schneiden
+function findCorners(Lg,g){const G1=new Uint8Array(W*H);for(let i=0;i<W*H;i++)G1[i]=Lg.lab[i]===g.id?1:0;
+ const nl=new Uint8Array(W*H);for(let i=0;i<W*H;i++)nl[i]=G1[i]?0:1;const L2=label(nl,W,H),F=new Uint8Array(W*H),bd=new Set(L2.comps.filter(c=>c.bd).map(c=>c.id));
+ for(let i=0;i<W*H;i++)F[i]=G1[i]||!bd.has(L2.lab[i])?1:0;
+ const O=opening(F,W,H,Math.max(4,Math.round(W*.008))),P=label(O,W,H).comps.reduce((a,b)=>b.n>a.n?b:a,{n:0});if(!P.n)return null;
+ const A=[P.T,P.R,P.B,P.L],C=[P.sx/P.n,P.sy/P.n],ln=[];
+ for(let k=0;k<4;k++)ln.push(fitSide(O,A[k],A[(k+1)%4],C));
+ const X=(a,b)=>{const det=a.d[0]*(-b.d[1])-a.d[1]*(-b.d[0]),rx=b.p[0]-a.p[0],ry=b.p[1]-a.p[1],t=(rx*(-b.d[1])-ry*(-b.d[0]))/det;return[a.p[0]+t*a.d[0],a.p[1]+t*a.d[1]];};
+ return[X(ln[3],ln[0]),X(ln[0],ln[1]),X(ln[1],ln[2]),X(ln[2],ln[3])];}
+function fitSide(m,P,Q,C){const dx=Q[0]-P[0],dy=Q[1]-P[1],L=Math.hypot(dx,dy),tx=dx/L,ty=dy/L;let nx=-ty,ny=tx;if((P[0]-C[0])*nx+(P[1]-C[1])*ny<0){nx=-nx;ny=-ny;}
+ const B=24,best=new Array(B).fill(-1e9),bp=new Array(B);
+ for(let y=0;y<H;y++)for(let x=0;x<W;x++){if(!m[y*W+x])continue;const rx=x-P[0],ry=y-P[1],t=(rx*tx+ry*ty)/L;if(t<.15||t>.85)continue;const d=rx*nx+ry*ny;if(Math.abs(d)>.15*L)continue;const b=Math.min(B-1,Math.floor((t-.15)/.7*B));if(d>best[b]){best[b]=d;bp[b]=[x,y];}}
+ const pts=bp.filter(Boolean),mx=pts.reduce((s,p)=>s+p[0],0)/pts.length,my=pts.reduce((s,p)=>s+p[1],0)/pts.length;let sxx=0,syy=0,sxy=0;
+ for(const p of pts){sxx+=(p[0]-mx)**2;syy+=(p[1]-my)**2;sxy+=(p[0]-mx)*(p[1]-my);}
+ const a=.5*Math.atan2(2*sxy,sxx-syy);return{p:[mx-nx*1.2,my-ny*1.2],d:[Math.cos(a),Math.sin(a)]};}
+
+// Schützennummer: handschriftliche Zahl im Kreis (Ring-Komponente, kein quadratischer Rahmen) finden und von Claude lesen lassen
+function findCircle(L1,paper,g,t){const pm=new Uint8Array(W*H);for(let i=0;i<W*H;i++)pm[i]=L1.lab[i]===paper.id?1:0;
+ const I=integral(pm,W,H),m=new Uint8Array(W*H);for(let y=0;y<H;y++)for(let x=0;x<W;x++){const i=y*W+x;m[i]=lum[i]<t&&win(I,W,H,x,y,6)>0?1:0;}
+ const M=label(m,W,H),gs=Math.max(g.R[0]-g.L[0],g.B[1]-g.T[1]);let best=null,bestBd=null;
+ for(const c of M.comps){const bw=c.R[0]-c.L[0]+1,bh=c.B[1]-c.T[1]+1,mx=Math.max(bw,bh),asp=bw/bh;
+  if(mx<gs*.15||mx>gs*.7||c.n/(bw*bh)>.2)continue;if(c.bd?(asp<.45||asp>2.2):(asp<.85||asp>1.18))continue;
+  const cx=c.sx/c.n,cy=c.sy/c.n;if(cx>g.L[0]&&cx<g.R[0]&&cy>g.T[1]&&cy<g.B[1])continue;
+  const q=Math.round(Math.min(bw,bh)*.12);let k=0;
+  for(const[x0,y0]of[[c.L[0],c.T[1]],[c.R[0]-q,c.T[1]],[c.L[0],c.B[1]-q],[c.R[0]-q,c.B[1]-q]])for(let y=Math.max(0,y0);y<Math.min(H,y0+q);y++)for(let x=Math.max(0,x0);x<Math.min(W,x0+q);x++)if(M.lab[y*W+x]===c.id)k++;
+  if(k>4*q)continue;const sz=c.bd?bestBd:best;if(!sz||mx>Math.max(sz.R[0]-sz.L[0],sz.B[1]-sz.T[1])){if(c.bd)bestBd=c;else best=c;}}
+ return best||bestBd;}
+const PROMPT='Das Bild zeigt einen Kreis mit einer gedruckten Zahl (die Schützennummer, ein- bis dreistellig). Am Rand können Teile eines QR-Codes oder handschriftliche Striche zu sehen sein, ignoriere diese. Lies die Zahl. Antworte nur mit JSON ohne weiteren Text: {"nummer":"<nur Ziffern, leer wenn keine Zahl erkennbar>","sicherheit":<Ganzzahl 0 bis 100, wie sicher du dir beim Lesen bist>}';
+async function readNumber(){const tok=++readTok,st=$('sstat'),inp=$('snum'),cf=$('sconf'),sc=$('scrop');inp.value='';cf.textContent='';cf.className='';
+ if(!circle){sc.width=sc.height=1;st.textContent='Kreis nicht gefunden. Nummer bitte selbst eintragen.';return;}
+ const c=circle,pad=.04*Math.max(c.R[0]-c.L[0],c.B[1]-c.T[1]),x0=Math.max(0,c.L[0]-pad),y0=Math.max(0,c.T[1]-pad),x1=Math.min(W,c.R[0]+pad),y1=Math.min(H,c.B[1]+pad);
+ const k=Math.min(1,480/(Math.max(x1-x0,y1-y0)*K));sc.width=Math.round((x1-x0)*K*k);sc.height=Math.round((y1-y0)*K*k);sc.getContext('2d').drawImage(orig,x0*K,y0*K,(x1-x0)*K,(y1-y0)*K,0,0,sc.width,sc.height);
+ let sample=null;try{if(window.claude&&claude.use)sample=await claude.use('sample');}catch(e){}
+ if(!sample){st.textContent='Automatisches Lesen ist hier nicht verfügbar. Bitte Nummer eintragen.';return;}
+ try{const lim=await sample.limits();if(!lim.images){st.textContent='Automatisches Lesen ist hier nicht verfügbar. Bitte Nummer eintragen.';return;}
+  st.textContent='Claude liest die Nummer …';const blob=await new Promise(r=>sc.toBlob(r,'image/jpeg',.92));
+  const r=await sample.json(PROMPT,{images:blob,modelTier:'default'});if(tok!==readTok)return;
+  inp.value=String(r.nummer||'').replace(/\D/g,'').slice(0,4);const p=Math.max(0,Math.min(100,Math.round(+r.sicherheit)||0));
+  if(inp.value){cf.textContent=p+' %';cf.className='conf '+(p>=85?'c-hi':p>=60?'c-mid':'c-lo');st.textContent='Von Claude gelesen. Bitte prüfen und bei Bedarf korrigieren.'+(c.bd?' Der Kreis ist am Bildrand abgeschnitten, die Nummer evtl. unvollständig.':'');}else st.textContent='Keine Zahl erkannt. Bitte selbst eintragen.';
+ }catch(e){if(tok===readTok)st.textContent='Lesen nicht möglich ('+((e&&e.code)||'Fehler')+'). Bitte Nummer eintragen.';}}
+
+// Bild begradigen: Raster-Ecken -> exaktes Quadrat (5×5 Felder zu je S Pixel)
+function normalize(){hb=homography(Q,corners);nc.width=nc.height=N;const nx=nc.getContext('2d'),out=nx.createImageData(N,N),o=out.data;lum2=new Uint8Array(N*N);
+ const px=(x,y,c)=>src[4*(Math.min(H-1,Math.max(0,y))*W+Math.min(W-1,Math.max(0,x)))+c];
+ for(let y=0;y<N;y++)for(let x=0;x<N;x++){const[X,Y]=ap(hb,(x+.5-OFF)/S,(y+.5-OFF)/S),x0=Math.floor(X-.5),y0=Math.floor(Y-.5),fx=X-.5-x0,fy=Y-.5-y0,i=y*N+x;
+  for(let c=0;c<3;c++)o[4*i+c]=(px(x0,y0,c)*(1-fx)+px(x0+1,y0,c)*fx)*(1-fy)+(px(x0,y0+1,c)*(1-fx)+px(x0+1,y0+1,c)*fx)*fy;
+  o[4*i+3]=255;lum2[i]=.299*o[4*i]+.587*o[4*i+1]+.114*o[4*i+2];}
+ nx.putImageData(out,0,0);view='norm';cv.width=cv.height=N;detectShots();}
+
+function detectShots(){if(!corners)return;
+ const h=new Array(256).fill(0);for(let i=0;i<N*N;i++)h[lum2[i]]++;const t=Math.min(130,Math.max(60,otsu(h,N*N)));
+ const d=new Uint8Array(N*N);for(let i=0;i<N*N;i++)d[i]=lum2[i]<t?1:0;
+ const{comps,lab}=label(opening(d,N,N,Math.round(.045*S)),N,N);shots=[];const add=o=>{if(o.x>-.3&&o.x<5.3&&o.y>-.3&&o.y<5.3)shots.push(o);};
+ for(const c of comps){const bw=c.R[0]-c.L[0]+1,bh=c.B[1]-c.T[1]+1,a=c.n/(S*S),lim=a>=.09?2.4:1.7;
+  if(a<.014||a>.6||Math.max(bw,bh)/Math.min(bw,bh)>lim||c.n/(bw*bh)<.5)continue;
+  const k=a>=.09?Math.min(3,Math.max(2,Math.round(a/.058))):1;
+  if(k===1){add({x:(c.sx/c.n-OFF)/S,y:(c.sy/c.n-OFF)/S,r:Math.sqrt(c.n/Math.PI)/S});continue;}
+  const px=[];for(let y=c.T[1];y<=c.B[1];y++)for(let x=c.L[0];x<=c.R[0];x++)if(lab[y*N+x]===c.id)px.push([x,y]);
+  const far=(cs)=>px.reduce((b,p)=>{const m=Math.min(...cs.map(q=>Math.hypot(p[0]-q[0],p[1]-q[1])));return m>b.m?{m,p}:b;},{m:-1}).p;
+  let cs=[far([[c.sx/c.n,c.sy/c.n]])];while(cs.length<k)cs.push(far(cs));
+  for(let it=0;it<10;it++){const sum=cs.map(()=>[0,0,0]);for(const p of px){let j=0,bd=1e9;cs.forEach((q,i)=>{const dd=Math.hypot(p[0]-q[0],p[1]-q[1]);if(dd<bd){bd=dd;j=i;}});sum[j][0]+=p[0];sum[j][1]+=p[1];sum[j][2]++;}
+   cs=cs.map((q,i)=>sum[i][2]?[sum[i][0]/sum[i][2],sum[i][1]/sum[i][2]]:q);}
+  cs.forEach(q=>add({x:(q[0]-OFF)/S,y:(q[1]-OFF)/S,r:.14,split:true}));}
+ shots.sort((a,b)=>a.y-b.y);update();}
+
+function score(s){const rg=s.r+parseFloat($('tol').value),f=[];let m=1;
+ for(let i=0;i<5;i++)for(let j=0;j<5;j++){const dx=Math.max(j-s.x,0,s.x-j-1),dy=Math.max(i-s.y,0,s.y-i-1);const dd=Math.hypot(dx,dy);m=Math.min(m,Math.abs(dd-rg));if(dd<=rg)f.push({n:G[i][j],i,j});}
+ // Sicherheit: Abstand des Lochrands zur nächsten Entscheidungsgrenze (Linie berührt ja/nein), 0,05 Feldbreiten = 100 %
+ let conf=Math.round(50+50*Math.min(1,m/.05));if(s.split)conf=Math.min(conf,70);
+ return{f,sum:f.reduce((t,x)=>t+x.n,0),conf};}
+
+function update(){res=shots.map(score);const tot=res.reduce((t,r)=>t+r.sum,0);
+ $('rows').innerHTML=res.map((r,i)=>`<tr data-i="${i}" class="${i===hl?'sel':''}"><td>${i+1}</td><td>${r.f.length?r.f.map(x=>x.n).join(' + '):'außerhalb'}</td><td>${r.sum}</td><td><span class="conf ${r.conf>=85?'c-hi':r.conf>=60?'c-mid':'c-lo'}">${r.conf} %</span></td></tr>`).join('');
+ $('total').textContent=`Gesamt: ${tot} Punkte`;
+ const w=[];if(shots.length!==5)w.push(`${shots.length} statt 5 Schüsse erkannt. Bitte im Bild ergänzen oder entfernen.`);
+ $('info').innerHTML=w.length?`<span class="warn">${w.join(' ')}</span>`:(shots.some(s=>s.split)?'5 Schüsse erkannt, überlagerte Löcher wurden getrennt. Bitte prüfen.':'5 Schüsse erkannt.');draw();}
+
+function draw(){if(view==='orig'){ctx.drawImage(base,0,0);pick.forEach(p=>{ctx.fillStyle='#2b8cff';ctx.beginPath();ctx.arc(p[0],p[1],6,0,7);ctx.fill();});return;}
+ ctx.drawImage(nc,0,0);ctx.lineWidth=1;ctx.strokeStyle='rgba(43,140,255,.55)';ctx.beginPath();for(let k=0;k<=5;k++){ctx.moveTo(OFF+k*S,OFF);ctx.lineTo(OFF+k*S,N-OFF);ctx.moveTo(OFF,OFF+k*S);ctx.lineTo(N-OFF,OFF+k*S);}ctx.stroke();
+ ctx.font='bold 18px sans-serif';
+ shots.forEach((s,i)=>{const r=res[i];ctx.fillStyle='rgba(255,176,0,.3)';r.f.forEach(({i:a,j})=>ctx.fillRect(OFF+j*S,OFF+a*S,S,S));
+  const x=OFF+s.x*S,y=OFF+s.y*S,rr=s.r*S;ctx.lineWidth=i===hl?4:2.5;ctx.strokeStyle='#e0245e';ctx.beginPath();ctx.arc(x,y,rr+3,0,7);ctx.stroke();
+  const t=`${i+1}: ${r.f.map(f=>f.n).join('+')||'0'} = ${r.sum}`,tw=ctx.measureText(t).width+10;let tx=x+rr+8;if(tx+tw>N)tx=x-rr-8-tw;const ty=Math.max(2,Math.min(N-24,y-rr-24));
+  ctx.fillStyle='rgba(20,20,20,.85)';ctx.fillRect(tx,ty,tw,22);ctx.fillStyle='#fff';ctx.fillText(t,tx+5,ty+17);});}
+
+cv.addEventListener('click',e=>{if(live)return;const b=cv.getBoundingClientRect(),x=(e.clientX-b.left)*cv.width/b.width,y=(e.clientY-b.top)*cv.height/b.height;
+ if(manual){pick.push([x,y]);if(pick.length===4){corners=pick;manual=false;pick=[];normalize();}else{$('info').textContent=['Jetzt rechte Ecke (25) anklicken','Jetzt untere Ecke (22) anklicken','Jetzt linke Ecke (24) anklicken'][pick.length-1];draw();}return;}
+ if(view!=='norm')return;const u=(x-OFF)/S,v=(y-OFF)/S,k=shots.findIndex(s=>Math.hypot(s.x-u,s.y-v)<s.r+.06);
+ if(k>=0)shots.splice(k,1);else shots.push({x:u,y:v,r:.13});update();});
+$('rows').addEventListener('click',e=>{const tr=e.target.closest('tr');if(tr){hl=+tr.dataset.i;update();}});
+// Live-Modus: Webcam-Stream, Raster und Schüsse laufend erkennen
+let live=false,stream=null,vid=null,busy=false,hist=[];
+async function startLive(){if(live)return;
+ if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){$('info').textContent='Kamerazugriff ist in diesem Browser nicht verfügbar.';return;}
+ try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:1280},height:{ideal:960}},audio:false});}
+ catch(e){$('info').textContent='Kamera nicht verfügbar oder nicht erlaubt ('+((e&&e.name)||'Fehler')+').';return;}
+ if(!vid){vid=document.createElement('video');vid.muted=true;vid.playsInline=true;vid.style.cssText='position:fixed;width:1px;height:1px;opacity:0;pointer-events:none';document.body.appendChild(vid);}
+ vid.srcObject=stream;try{await vid.play();}catch(e){}
+ live=true;hist=[];manual=false;pick=[];cv.hidden=false;$('hint').hidden=true;$('livebtn').textContent='Live-Modus beenden';$('snap').hidden=false;tick();}
+function stopLive(){if(!live&&!stream)return;live=false;if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;if(vid)vid.srcObject=null;$('livebtn').textContent='Live-Modus';$('snap').hidden=true;}
+function tick(){if(!live)return;if(!busy&&vid.videoWidth>0){busy=true;try{liveStep();}catch(e){console.error(e);}busy=false;}setTimeout(tick,120);}
+function liveStep(){const vw=vid.videoWidth,vh=vid.videoHeight,k=Math.min(1,800/Math.max(vw,vh));W=Math.round(vw*k);H=Math.round(vh*k);
+ base.width=W;base.height=H;const bc=base.getContext('2d');bc.drawImage(vid,0,0,W,H);src=bc.getImageData(0,0,W,H).data;lum=new Uint8Array(W*H);for(let i=0;i<W*H;i++)lum[i]=.299*src[4*i]+.587*src[4*i+1]+.114*src[4*i+2];
+ shots=[];res=[];corners=null;circle=null;detectGrid(true);
+ const sig=corners?shots.length+':'+res.map(r=>r.sum).join(','):'-';hist.push(sig);if(hist.length>4)hist.shift();
+ const stable=corners&&hist.length===4&&hist.every(x=>x===sig);
+ if(!corners){$('info').innerHTML='<span class="warn">Live: Raster nicht erkannt. Karte gerade und vollständig vor die Kamera halten.</span>';$('total').textContent='–';$('rows').innerHTML='';}
+ else $('info').innerHTML=(stable?'<b>● Live, stabil.</b> ':'Live, misst … ')+$('info').innerHTML;}
+$('livebtn').onclick=()=>live?stopLive():startLive();
+$('snap').onclick=()=>{if(!live)return;const c=document.createElement('canvas');c.width=vid.videoWidth;c.height=vid.videoHeight;c.getContext('2d').drawImage(vid,0,0);stopLive();useImage(c);};
+// QR-Code (UUID) mit jsQR lesen: erst Umgebung des Kreises, dann das ganze Bild in Originalauflösung
+const UUID_RE=/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+function scanQR(img,sx,sy,sw,sh,maxSide){const sc=Math.min(maxSide/Math.max(sw,sh),2.5),w=Math.max(1,Math.round(sw*sc)),h=Math.max(1,Math.round(sh*sc)),c=document.createElement('canvas');c.width=w;c.height=h;
+ const x=c.getContext('2d',{willReadFrequently:true});x.drawImage(img,sx,sy,sw,sh,0,0,w,h);const d=x.getImageData(0,0,w,h);return jsQR(d.data,w,h,{inversionAttempts:'attemptBoth'});}
+function readQR(){const inp=$('uuid'),st=$('qstat');inp.value='';st.textContent='';
+ if(typeof jsQR==='undefined'){st.textContent='QR-Bibliothek nicht geladen (Internet nötig). Bitte UUID eintragen.';return;}
+ const NW=orig.width,NH=orig.height,regs=[];
+ if(circle){const cw=circle.R[0]-circle.L[0]+1,ch=circle.B[1]-circle.T[1]+1,x0=Math.max(0,(circle.L[0]-3.5*cw)*K),y0=Math.max(0,(circle.T[1]-ch)*K),x1=Math.min(NW,(circle.R[0]+cw)*K),y1=Math.min(NH,(circle.B[1]+ch)*K);regs.push([x0,y0,x1-x0,y1-y0,1600]);}
+ regs.push([0,0,NW,NH,2200]);let r=null;
+ for(const g of regs){try{r=scanQR(orig,...g);}catch(e){}if(r&&r.data)break;}
+ if(!r||!r.data){st.textContent='Kein QR-Code gefunden. Bitte UUID eintragen.';return;}
+ const m=r.data.match(UUID_RE);inp.value=m?m[0].toLowerCase():r.data.trim();st.textContent=m?'QR-Code gelesen.':'QR-Code gelesen, enthält aber keine UUID. Inhalt wurde übernommen.';}
+// Ergebnisse im Browser (localStorage) speichern, anzeigen und als CSV exportieren
+const KEY='nikolo-ergebnisse-v1';let clearArm=0;
+const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function loadList(){try{const l=JSON.parse(localStorage.getItem(KEY));return Array.isArray(l)?l:[];}catch(e){return[];}}
+function saveList(l){try{localStorage.setItem(KEY,JSON.stringify(l));$('lmsg').textContent='';return true;}catch(e){$('lmsg').textContent='Speichern im Browser ist hier nicht möglich.';return false;}}
+function renderList(){const l=loadList();
+ $('lrows').innerHTML=l.map((r,i)=>`<tr><td>${new Date(r.t).toLocaleString('de-AT',{dateStyle:'short',timeStyle:'short'})}</td><td title="${esc(r.uuid||'')}" style="font-family:ui-monospace,Consolas,monospace;font-size:13px">${r.uuid?esc(r.uuid.slice(0,8))+'…':'–'}</td><td>${esc(r.nr)||'–'}</td><td>${r.w.join(' · ')}</td><td><b>${r.tot}</b></td><td><button class="alt" data-del="${i}" aria-label="Eintrag löschen">✕</button></td></tr>`).join('');
+ $('lsum').textContent=l.length?`${l.length} Karte${l.length===1?'':'n'} gespeichert`:'Noch nichts gespeichert.';}
+$('add').onclick=()=>{if(!corners||!res.length){$('lmsg').textContent='Zuerst eine Scheibe auswerten.';return;}
+ const l=loadList();l.push({t:Date.now(),nr:$('snum').value.trim(),uuid:$('uuid').value.trim(),w:res.map(r=>r.sum),tot:res.reduce((a,r)=>a+r.sum,0)});if(saveList(l)){renderList();$('lmsg').textContent='Gespeichert.';}};
+$('lrows').addEventListener('click',e=>{const b=e.target.closest('[data-del]');if(!b)return;const l=loadList();l.splice(+b.dataset.del,1);saveList(l);renderList();});
+$('lclear').onclick=()=>{if(Date.now()-clearArm<3000){saveList([]);renderList();clearArm=0;$('lclear').textContent='Liste leeren';}else{clearArm=Date.now();$('lclear').textContent='Wirklich leeren?';setTimeout(()=>{if(Date.now()-clearArm>=3000)$('lclear').textContent='Liste leeren';},3100);}};
+$('lcsv').onclick=()=>{const l=loadList();if(!l.length){$('lmsg').textContent='Die Liste ist leer.';return;}
+ const n=Math.max(5,...l.map(r=>r.w.length)),p=x=>String(x).padStart(2,'0'),q=t=>`"${String(t).replace(/"/g,'""')}"`;
+ const head=['Datum','UUID','Schützennummer',...Array.from({length:n},(_,i)=>'Schuss '+(i+1)),'Gesamt'].join(';');
+ const rows=l.map(r=>{const d=new Date(r.t);return[`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`,q(r.uuid||''),q(r.nr),...Array.from({length:n},(_,i)=>r.w[i]??''),r.tot].join(';');});
+ const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+[head,...rows].join('\r\n')],{type:'text/csv;charset=utf-8'}));a.download='nikolo-ergebnisse.csv';document.body.appendChild(a);a.click();a.remove();};
+renderList();
+['file','cam'].forEach(id=>$(id).addEventListener('change',e=>{const f=e.target.files[0];e.target.value='';if(f)load(f);}));
+$('man').onclick=()=>{if(!W||live)return;manual=true;pick=[];view='orig';cv.width=W;cv.height=H;shots=[];res=[];$('rows').innerHTML='';$('total').textContent='–';$('info').textContent='Obere Ecke (23) anklicken';draw();};
+$('sread').onclick=()=>{if(W)readNumber();};
+$('redo').onclick=()=>{if(corners&&!live)detectShots();};
+$('tol').oninput=e=>{$('tolv').textContent=e.target.value.replace('.',',');if(view==='norm')update();};
+['dragover','drop'].forEach(n=>document.addEventListener(n,e=>{e.preventDefault();if(n==='drop'&&e.dataTransfer.files[0])load(e.dataTransfer.files[0]);}));
+</script>
+</body>
+</html>
