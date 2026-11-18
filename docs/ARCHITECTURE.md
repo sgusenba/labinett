@@ -1,7 +1,7 @@
 # Architektur – Nikolo-Scheibe auswerten (Python + Web-Bedienung)
 
 Spec: [`spec/nikolo-auswertung-live2.html`](../spec/nikolo-auswertung-live2.html) – funktionierender Browser-Prototyp.
-Ziel: Ein Windows-Rechner mit USB-Webcam erkennt aufgelegte Karten **automatisch**, zählt die Punkte und schreibt die Ergebnisse zusammen mit der **UUID aus dem QR-Code** in eine **CSV-Datei** (Speicherort einstellbar). Bedienung im Browser, Auslieferung als **.exe**.
+Ziel: Ein Windows-Rechner mit USB-Webcam erkennt aufgelegte Karten **automatisch**, zählt die Punkte und liest die **Schützennummer** im Kreis (bei Unsicherheit von Hand eintragen) und schreibt die Ergebnisse in eine **CSV-Datei** (Speicherort einstellbar). Die **UUID aus einem QR-Code** ist vorbereitet, kommt aber erst später, wenn die Karten QR-Codes haben. Bedienung im Browser, Auslieferung als **.exe**.
 
 ## Rahmen
 
@@ -11,7 +11,8 @@ Ziel: Ein Windows-Rechner mit USB-Webcam erkennt aufgelegte Karten **automatisch
 | Backend | Python 3.12, OpenCV, FastAPI + Uvicorn | OpenCV steuert die Kamera direkt und rechnet schnell; FastAPI liefert UI und API |
 | Bedienung | Web-UI (HTML + Vanilla-JS) auf `http://127.0.0.1:8765` | Bekannte Oberfläche aus der Spec, kein Framework, kein Build-Schritt |
 | Speicher | CSV-Datei (`;`, UTF-8 mit BOM, Excel-tauglich), Pfad einstellbar | Wunsch; direkt in Excel öffnen |
-| Identität | Nur die UUID aus dem QR-Code, keine Schützennummer | Die UUID bildet die Schützennummer ab |
+| Identität | Schritt 1: Schützennummer (automatisch gelesen, sonst eingetippt). Später zusätzlich UUID aus dem QR-Code | Heutige Karten haben noch keinen QR-Code |
+| Ziffernerkennung | Lokal, offline: Kreis finden → Ziffern trennen → kleines ONNX-Modell über `cv2.dnn` | Kein Internet, keine Zusatzinstallation (kein Tesseract nötig), passt in die exe |
 | Schüsse | Jede Karte hat genau 5 Schüsse | Grundlage für automatische Aufnahme und Prüfung |
 | Auslieferung | PyInstaller `onedir` + Startmenü-/Desktop-Verknüpfung, gebaut über GitHub Actions | Kein Python nötig am Zielrechner; `onedir` startet schneller und löst seltener Virenscanner-Fehlalarme aus als `onefile` |
 | Netzwerk | Nur `127.0.0.1`, kein Internet nötig | Offline am Schießstand, keine Freigaben in der Firewall |
@@ -23,11 +24,12 @@ flowchart LR
   subgraph Python-Prozess
     CAM[camera.py<br/>Kamera-Thread<br/>Frames + Einstellungen] --> PIPE[live.py<br/>Analyse-Thread<br/>~8–10 Bilder/s]
     PIPE --> TR[tracker.py<br/>Ruhe-Erkennung<br/>Zustandsmaschine]
-    TR -->|stabil| CAPT[capture.py<br/>Aufnahme volle Auflösung<br/>Auswertung + QR/UUID]
+    TR -->|stabil| CAPT[capture.py<br/>Aufnahme volle Auflösung<br/>Schüsse + Nummer + Kennung]
     CAPT --> STORE[storage.py<br/>CSV]
     subgraph vision
       GRID[grid.py] --> WARP[warp.py] --> SHOTS[shots.py] --> BOARD[board.py]
-      QR[qr.py]
+      CIRC[circle.py] --> NUM[number.py]
+      QR["qr.py (später)"]
     end
     PIPE -.nutzt.-> vision
     CAPT -.nutzt.-> vision
@@ -50,7 +52,8 @@ labinett/
     camera.py        cv2.VideoCapture (CAP_DSHOW), Auflösung, Fokus/Belichtung/Weißabgleich sperren
     live.py          Analyse-Schleife: Frame verkleinern → vision → tracker → Overlay
     tracker.py       Ruhe-Erkennung und Zustände (siehe unten)
-    capture.py       aktuelle Aufnahme: Bilder, Ecken, Schüsse, Korrekturen, Neuberechnung
+    capture.py       aktuelle Aufnahme: Bilder, Ecken, Schüsse, Nummer, Kennung, Korrekturen, Neuberechnung
+    identity.py      Kennungsquellen hinter einer Schnittstelle (siehe „Kennung“)
     storage.py       CSV lesen/anhängen/löschen, Sperre durch Excel erkennen
     server.py        FastAPI-Routen, MJPEG-Stream, Server-Sent Events
     vision/
@@ -58,7 +61,13 @@ labinett/
       grid.py        Papier → Raster-Raute → 4 Ecken (Linien-Fit), Plausibilitätsprüfung
       warp.py        Homographie, begradigtes 720×720-Bild
       shots.py       Löcher finden, überlagerte Löcher per k-means trennen
-      qr.py          UUID aus dem QR-Code (cv2.QRCodeDetector, offline)
+      circle.py      Kreis mit der Schützennummer finden (aus der Spec)
+      number.py      Ziffern im Kreis trennen und lesen, Sicherheit je Ziffer
+      qr.py          UUID aus dem QR-Code (cv2.QRCodeDetector) – vorbereitet, standardmäßig aus
+    models/
+      digits.onnx    Ziffernmodell (wenige hundert kB), mit Trainingsskript in tools/
+  tools/
+    train_digits.py  Modell aus gesammelten Ziffernausschnitten + Schriften trainieren
   web/
     index.html, app.js, style.css
   tests/
@@ -88,10 +97,39 @@ Der Algorithmus bleibt gleich. OpenCV ersetzt die handgeschriebenen Bausteine:
 | `homography`, `normalize` | `cv2.getPerspectiveTransform` + `cv2.warpPerspective` |
 | `fitSide` | gleiche Logik in NumPy (äußerste Punkte je Abschnitt, `cv2.fitLine`) |
 | k-means für Doppellöcher | `cv2.kmeans` |
-| jsQR | `cv2.QRCodeDetector` |
+| `findCircle` | 1:1 portiert, Komponenten über `cv2.connectedComponentsWithStats` |
+| Nummer lesen über Claude | lokal: `number.py` + `digits.onnx` (siehe unten) |
+| jsQR | `cv2.QRCodeDetector` (später) |
 | `score` | 1:1 portiert |
 
 Die magischen Zahlen (`.045*S`, `.058`, `.09`, Klemmen …) wandern dokumentiert in `config.py` (`DetectionConfig`).
+
+## Schützennummer lesen
+
+1. **Kreis finden** wie in der Spec (ringförmige dunkle Komponente außerhalb des Rasters).
+2. **Innenfläche ausschneiden**, auf feste Größe bringen, Schwellwert (adaptiv), Kreisring entfernen.
+3. **Ziffern trennen** über Komponenten, von links nach rechts; 1–3 Ziffern erwartet (einstellbar).
+4. **Jede Ziffer klassifizieren** mit einem kleinen CNN (`digits.onnx`, über `cv2.dnn`, keine Zusatzbibliothek). Ausgabe: Ziffer + Wahrscheinlichkeit.
+5. **Mehrere Bilder abstimmen:** Die Nummer wird in den letzten ruhigen Livebildern und in der Aufnahme gelesen. Stimmen sie überein, steigt die Sicherheit.
+6. **Sicherheit** = kleinste Ziffern-Wahrscheinlichkeit × Übereinstimmung. Ab einer Schwelle (Standard 90 %) gilt die Nummer als erkannt; darunter wird sie nur vorgeschlagen und das Eingabefeld bekommt den Fokus.
+
+Modell: Start mit einem Modell aus gedruckten Ziffern (mehrere Schriften, verzerrt, verrauscht) plus MNIST für Handschrift. Sobald echte Karten durchlaufen, speichert die App die Ziffernausschnitte samt bestätigter Nummer in `%APPDATA%\Nikolo\samples\`; daraus wird nachtrainiert. Das Modell ist austauschbar, ohne Code zu ändern.
+
+Fallback, wenn kein Kreis gefunden wird: Feld leer, Fokus ins Eingabefeld, Ausschnitt des Fotos rund um das Raster zur Orientierung.
+
+## Kennung (Nummer heute, UUID später)
+
+Die Karte bekommt eine **Kennung** aus einer oder mehreren Quellen:
+
+```python
+class IdentitySource(Protocol):
+    name: str                                   # "number", "qr"
+    def read(self, photo, analysis) -> Reading | None   # Wert + Sicherheit
+```
+
+- **Schritt 1:** nur `NumberSource` aktiv. Kennung = Schützennummer.
+- **Später:** `QrSource` per Einstellung `identity.qr = true` einschalten. Dann gilt: UUID als Schlüssel, Nummer zur Kontrolle. Wird der QR in der Aufnahme nicht gefunden, durchsuchen die nächsten Livebilder noch ~2 s weiter. Lassen sich UUID → Nummer zuordnen, wird ein Widerspruch als Hinweis angezeigt.
+- CSV, API und UI haben die Spalte/das Feld **UUID von Anfang an**; bis QR aktiv ist, bleibt es leer bzw. ausgeblendet. So muss beim Umstieg nichts migriert werden.
 
 ## Live-Modus ohne Springen
 
@@ -119,7 +157,7 @@ stateDiagram-v2
 
 - **Ruhig:** Über die letzten ~8 Analysebilder bewegt sich keine Ecke mehr als ~1 % der Rasterdiagonale.
 - **Ergebnis-Mehrheit:** Mindestens 75 % dieser Bilder liefern dieselbe Signatur (Anzahl Schüsse + sortierte Werte). Kippt ein Schuss an der Linie hin und her, wird trotzdem aufgenommen; der Schuss erscheint dann gelb/rot.
-- **Aufnahme:** Bild in voller Auflösung, optional Mittel aus 3 Bildern gegen Rauschen. Dann Raster, Schüsse, QR. Wird kein QR gefunden, werden die nächsten Livebilder noch ~2 s weiter nach dem QR durchsucht (oft reicht ein schärferes Bild).
+- **Aufnahme:** Bild in voller Auflösung, optional Mittel aus 3 Bildern gegen Rauschen. Dann Raster, Schüsse, Schützennummer (abgestimmt mit den letzten Livebildern), später zusätzlich QR.
 - **Sperre:** Nach einer Aufnahme erst wieder auslösen, wenn die Karte entnommen war. Ein ungespeichertes Ergebnis wird nie automatisch überschrieben.
 - **Nicht genau 5 Schüsse erkannt:** keine automatische Aufnahme, Hinweis + Knopf „Jetzt aufnehmen“. Nach dem Aufnehmen muss die Anzahl per Klick auf 5 gebracht werden, sonst ist Speichern gesperrt.
 
@@ -130,17 +168,18 @@ stateDiagram-v2
 | GET | `/` | Web-UI |
 | GET | `/api/live.mjpg` | Livebild mit Overlay (MJPEG, als `<img>` einbindbar) |
 | GET | `/api/events` | Server-Sent Events: Zustand, Fortschritt, Hinweistext, neue Aufnahme |
-| GET | `/api/capture` | aktuelle Aufnahme: Schüsse, Felder, Werte, Sicherheit, UUID, Hinweise |
-| GET | `/api/capture/warped.jpg`, `/api/capture/photo.jpg` | Bilder dazu |
+| GET | `/api/capture` | aktuelle Aufnahme: Schüsse, Felder, Werte, Sicherheit, Nummer + Sicherheit, UUID, Hinweise |
+| GET | `/api/capture/warped.jpg`, `/api/capture/photo.jpg`, `/api/capture/number.jpg` | Bilder dazu (Nummernausschnitt zum Ablesen) |
+| POST | `/api/capture/number/reread` | Nummer neu lesen |
 | POST | `/api/capture/snap` | sofort aufnehmen |
 | POST | `/api/capture/shots` | Schuss hinzufügen/entfernen (Feldkoordinaten) |
 | POST | `/api/capture/corners` | Ecken manuell setzen |
 | POST | `/api/capture/tolerance` | Anriss-Toleranz ändern |
-| POST | `/api/capture/save` | mit UUID in die CSV schreiben (UUID bei Bedarf von Hand korrigiert) |
+| POST | `/api/capture/save` | mit Nummer (und später UUID) in die CSV schreiben, Werte bei Bedarf von Hand korrigiert |
 | DELETE | `/api/capture` | verwerfen |
 | GET / DELETE | `/api/results`, `/api/results/{id}` | gespeicherte Karten |
 | GET | `/api/results.csv` | CSV herunterladen |
-| GET / PUT | `/api/settings`, GET `/api/cameras` | Kamera, Auflösung, Drehung, automatisch speichern, Fokus/Belichtung, CSV-Pfad |
+| GET / PUT | `/api/settings`, GET `/api/cameras` | Kamera, Auflösung, Drehung, automatisch speichern, Fokus/Belichtung, CSV-Pfad, Nummern-Schwelle, QR an/aus |
 | POST | `/api/settings/csv/browse` | Windows-Dialog „Speichern unter“ öffnen und Pfad übernehmen |
 
 Bewertung und Korrekturen rechnet nur der Server – eine Quelle der Wahrheit.
@@ -149,8 +188,8 @@ Bewertung und Korrekturen rechnet nur der Server – eine Quelle der Wahrheit.
 
 1. `Nikolo.exe` starten → Browser öffnet sich, Livebild läuft.
 2. Karte aufrecht (23 oben) unter die Kamera legen → Raster wird grün, Fortschrittsbalken läuft → automatische Aufnahme.
-3. **Automatisch speichern** (Standard): Sind 5 Schüsse erkannt, alle Schüsse grün und die UUID gelesen und neu, wird sofort in die CSV geschrieben. Die UI zeigt das Ergebnis groß an, mit einem Knopf „Rückgängig“ für die letzte Karte.
-4. Sonst bleibt das Ergebnis zur Prüfung stehen (gelb/rote Schüsse, keine oder doppelte UUID). Klick ins Bild korrigiert Schüsse, das UUID-Feld lässt sich von Hand füllen (auch per Handscanner, der wie eine Tastatur tippt). **Enter** speichert, **Esc** verwirft.
+3. **Automatisch speichern** (Standard): Sind 5 Schüsse erkannt, alle Schüsse grün und die Schützennummer sicher erkannt, wird sofort in die CSV geschrieben. Die UI zeigt Nummer und Ergebnis groß an, mit einem Knopf „Rückgängig“ für die letzte Karte.
+4. Sonst bleibt das Ergebnis zur Prüfung stehen (gelb/rote Schüsse, Nummer unsicher oder nicht gefunden). Der Nummernausschnitt wird groß gezeigt, der Vorschlag steht im Feld und ist markiert, sodass man einfach drübertippt. Klick ins Bild korrigiert Schüsse. **Enter** speichert, **Esc** verwirft.
 5. Karte wegnehmen, nächste auflegen.
 
 ## CSV
@@ -161,16 +200,18 @@ Bewertung und Korrekturen rechnet nur der Server – eine Quelle der Wahrheit.
 - Ist das Ziel nicht erreichbar (Stick abgezogen, Netzlaufwerk weg) oder die Datei in Excel geöffnet (Windows sperrt sie), landen Ergebnisse in einer Warteschlange (`%APPDATA%\Nikolo\pending.jsonl`) und werden nachgetragen, sobald es wieder geht. Die UI zeigt das deutlich an.
 
 ```
-ID;Datum;UUID;Schuss 1;Schuss 2;Schuss 3;Schuss 4;Schuss 5;Gesamt;Korrigiert
+ID;Datum;Schützennummer;Nummer erkannt;UUID;Schuss 1;Schuss 2;Schuss 3;Schuss 4;Schuss 5;Gesamt;Korrigiert
 ```
 
 - Neue Ergebnisse werden **angehängt**; Löschen schreibt die Datei neu.
-- Doppelte UUID: kein automatisches Speichern, Warnung, Speichern nur nach Bestätigung.
-- `Korrigiert` = ja, wenn Schüsse, Ecken oder UUID von Hand geändert wurden.
+- `Nummer erkannt` = `auto` oder `manuell`. `UUID` bleibt leer, bis QR-Codes eingeführt sind.
+- Gleiche Schützennummer schon gespeichert: Hinweis (z. B. „Nr. 17 hat schon 2 Karten“), Speichern bleibt möglich, weil eine Person mehrere Karten schießen kann. Mit QR: doppelte UUID = gleiche Karte → kein automatisches Speichern, nur nach Bestätigung.
+- `Korrigiert` = ja, wenn Schüsse oder Ecken von Hand geändert wurden.
 
 ## Tests
 
-- **Unit:** `board.score` (Feldmitte, Linie, Kreuzung, außerhalb, Doppelloch-Obergrenze), Tracker-Zustände, CSV-Rundlauf.
+- **Unit:** `board.score` (Feldmitte, Linie, Kreuzung, außerhalb, Doppelloch-Obergrenze), Tracker-Zustände, CSV-Rundlauf, Kennungsquellen (QR aus → UUID leer).
+- **Nummer:** Ziffern-Testsatz aus echten Ausschnitten; Ziel ≥ 99 % richtig bei „sicher“, Rest landet bei „bitte prüfen“ statt falsch gespeichert.
 - **Synthetisch:** Generator für Scheiben mit bekannten Löchern, Drehung ±10°, leichte Perspektive, Rauschen.
 - **Golden:** echte Fotos von der verwendeten Webcam in `tests/fixtures/` mit erwarteten Werten. Jede Änderung an Schwellen muss sie bestehen.
 - Läuft in GitHub Actions auf Windows vor jedem exe-Build.
@@ -180,13 +221,19 @@ ID;Datum;UUID;Schuss 1;Schuss 2;Schuss 3;Schuss 4;Schuss 5;Gesamt;Korrigiert
 1. **Grundgerüst + Erkennung:** Paket, `vision/` portiert, synthetische Tests, Kommandozeile `python -m nikolo.vision foto.jpg`.
 2. **Golden-Tests:** 5–10 echte Fotos mit Ergebnissen, Schwellen abgleichen.
 3. **Kamera + Live:** Kamera-Thread, MJPEG mit Overlay, Tracker, automatische Aufnahme, Kamera fixieren.
-4. **Web-UI + CSV:** Ergebnis prüfen/korrigieren, speichern, Liste, Einstellungen.
-5. **exe:** PyInstaller, GitHub-Action, Release-Datei, Kurzanleitung.
-6. **Optional:** Übergabe an das Wettkampfsystem über die UUID.
+4. **Schützennummer:** Kreis, Ziffern trennen, erstes Modell, Abstimmung über mehrere Bilder, Ausschnitte sammeln.
+5. **Web-UI + CSV:** Ergebnis prüfen/korrigieren, Nummer bestätigen/eintippen, speichern, Liste, Einstellungen.
+6. **exe:** PyInstaller, GitHub-Action, Release-Datei, Kurzanleitung.
+7. **Später – QR/UUID:** `QrSource` einschalten, sobald die Karten QR-Codes haben; Übergabe an das Wettkampfsystem über die UUID.
 
 ## Geklärt
 
 - Webcam: wird später festgelegt → allgemein für UVC-Kameras gebaut.
 - Jede Karte hat genau 5 Schüsse.
-- Keine Schützennummer, die UUID aus dem QR-Code ist der Schlüssel.
+- Schritt 1: Schützennummer automatisch lesen, sonst eintippen. QR/UUID ist vorbereitet, kommt später.
 - CSV-Speicherort ist einstellbar.
+
+## Offen
+
+- Ist die Nummer gedruckt oder handgeschrieben? (Gedruckt ist deutlich zuverlässiger; der Kommentar im Prototyp sagt handschriftlich, der Prompt gedruckt.)
+- Wie viele Stellen hat die Nummer höchstens (Prototyp: 1–3)?
