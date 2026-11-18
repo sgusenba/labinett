@@ -76,6 +76,9 @@ class Kamera:
         self._laeuft = False
         self._thread: threading.Thread | None = None
         self._dialog = False
+        self._fokus_wunsch: int | None = None  # vom Bediener gewünschter Fokus, im Lesethread gesetzt
+        self.fokus_aktuell: float | None = None
+        self.autofokus = True
         self.fehler: str | None = None
         self.festgehalten: dict[str, bool] = {}
 
@@ -106,6 +109,14 @@ class Kamera:
         """Einstellungsdialog des Kameratreibers öffnen (Windows/DirectShow)."""
         self._dialog = True
 
+    def fokus_setzen(self, wert: int) -> None:
+        """Fokus live ändern: ``wert`` ≥ 0 = fester Fokus, -1 = Autofokus neu scharfstellen lassen.
+
+        Bei -1 läuft der Autofokus wieder, und – wenn ``sperren`` aktiv ist – wird der
+        eingeregelte Wert nach der Einlaufzeit erneut festgehalten.
+        """
+        self._fokus_wunsch = int(wert)
+
     def status(self) -> dict:
         with self._lock:
             return {
@@ -116,6 +127,8 @@ class Kamera:
                 "wartet_auf_neue_karte": self._gesperrt,
                 "auto_aktiv": self.auto_aktiv,
                 "festgehalten": dict(self.festgehalten),
+                "fokus": self.fokus_aktuell,
+                "autofokus": self.autofokus,
             }
 
     def vorschau_jpeg(self) -> bytes | None:
@@ -157,6 +170,7 @@ class Kamera:
 
         fokus = self.fokus if self.fokus >= 0 else cap.get(cv2.CAP_PROP_FOCUS)
         erg["fokus"] = setze(cv2.CAP_PROP_AUTOFOCUS, 0) | setze(cv2.CAP_PROP_FOCUS, fokus)
+        self.autofokus = not erg["fokus"]
         belichtung = cap.get(cv2.CAP_PROP_EXPOSURE)
         # DirectShow schaltet beim Setzen eines Werts auf manuell, V4L2 braucht AUTO_EXPOSURE=1/0.25
         manuell = 0.25 if not sys.platform.startswith("win") else 0
@@ -164,6 +178,28 @@ class Kamera:
         wb = cap.get(cv2.CAP_PROP_WB_TEMPERATURE)
         erg["weissabgleich"] = setze(cv2.CAP_PROP_AUTO_WB, 0) | (wb > 0 and setze(cv2.CAP_PROP_WB_TEMPERATURE, wb))
         self.festgehalten = erg
+
+    def _fokus_anwenden(self, cap: cv2.VideoCapture, wert: int) -> bool:
+        """Gewünschten Fokus setzen; True = Autofokus läuft wieder (Einlauf neu starten)."""
+        try:
+            if wert < 0:
+                self.fokus = -1
+                self.autofokus = True
+                cap.set(cv2.CAP_PROP_AUTOFOCUS, 1)
+                return True
+            self.fokus = wert
+            self.autofokus = False
+            cap.set(cv2.CAP_PROP_AUTOFOCUS, 0)
+            cap.set(cv2.CAP_PROP_FOCUS, wert)
+        except cv2.error:
+            pass
+        return False
+
+    def _fokus_lesen(self, cap: cv2.VideoCapture) -> None:
+        try:
+            self.fokus_aktuell = float(cap.get(cv2.CAP_PROP_FOCUS))
+        except cv2.error:
+            self.fokus_aktuell = None
 
     def _glaetten(self, ecken: np.ndarray | None) -> None:
         if ecken is None:
@@ -178,6 +214,7 @@ class Kamera:
         letzte = None
         start = time.monotonic()
         festgehalten = not self.sperren
+        n = 0
         while self._laeuft:
             if not cap.isOpened():
                 self.fehler = f"Kamera {self.index} lässt sich nicht öffnen"
@@ -193,6 +230,15 @@ class Kamera:
                     cap.set(cv2.CAP_PROP_SETTINGS, 1)
                 except cv2.error:
                     pass
+            if self._fokus_wunsch is not None:
+                wunsch, self._fokus_wunsch = self._fokus_wunsch, None
+                if self._fokus_anwenden(cap, wunsch):
+                    start = time.monotonic()
+                    festgehalten = not self.sperren
+                self._fokus_lesen(cap)
+            n += 1
+            if n % 15 == 0:  # Autofokus wandert, Anzeige gelegentlich nachziehen
+                self._fokus_lesen(cap)
             ok, frame = cap.read()
             if not ok:
                 self.fehler = "Kein Bild von der Kamera"
@@ -205,6 +251,7 @@ class Kamera:
                 except Exception:  # Kamera ohne diese Eigenschaften: Automatik bleibt
                     self.festgehalten = {}
                 festgehalten = True
+                self._fokus_lesen(cap)
             ecken = schnell_ecken(frame)
             fertig: list[np.ndarray] | None = None
             with self._lock:

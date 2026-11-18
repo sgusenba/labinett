@@ -150,3 +150,37 @@ def test_abstimmung_ueber_mehrere_bilder(tmp_path):
     assert e["karte"]["gesamt"] == 147
     assert any("2 von 3" in h for h in e["hinweise"])
     assert e["karte"]["status"] == "pruefen"
+
+
+def test_fokus_endpunkt(tmp_path):
+    c = client(tmp_path)
+    assert c.post("/api/kamera/fokus", json={"wert": -5}).status_code == 400
+    assert c.post("/api/kamera/fokus", json={"wert": 100}).status_code == 409  # ohne Kamera
+
+
+def test_fokus_endpunkt_mit_kamera(tmp_path, monkeypatch):
+    from labinett import app as app_mod
+    from labinett import config
+
+    gesetzt = []
+
+    class FakeKamera:
+        def __init__(self, *a, **kw):
+            pass
+
+        def start(self):
+            pass
+
+        def stop(self):
+            pass
+
+        def fokus_setzen(self, w):
+            gesetzt.append(w)
+
+    monkeypatch.setattr(app_mod, "Kamera", FakeKamera)
+    e = Einstellungen(csv_pfad=str(tmp_path / "erg.csv"), browser_oeffnen=False)
+    c = TestClient(erstelle_app(e, mit_kamera=True, config_pfad=tmp_path / "labinett.json"))
+    assert c.post("/api/kamera/fokus", json={"wert": 80}).status_code == 200
+    assert c.post("/api/kamera/fokus", json={"wert": -1}).status_code == 200
+    assert gesetzt == [80, -1]
+    assert config.laden(tmp_path / "labinett.json").kamera_fokus == -1

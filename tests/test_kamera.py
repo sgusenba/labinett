@@ -90,3 +90,29 @@ def test_kamera_werte_festhalten(monkeypatch):
     assert cap.gesetzt[cv2.CAP_PROP_FOCUS] == 17
     assert cap.gesetzt[cv2.CAP_PROP_EXPOSURE] == 42.0
     assert k.status()["festgehalten"]["fokus"] is True
+
+
+def test_fokus_live_setzen(monkeypatch):
+    karte = cv2.imread(str(TESTDATA / "nikolo_04.jpg"))
+    monkeypatch.setattr(Kamera, "EINLAUF_S", 0.0)
+    k = Kamera(0, 640, 480, stabile_frames=5, bei_aufnahme=lambda b: None, sperren=True)
+    cap = FakeCap([karte] * 2000)
+    k._oeffnen = lambda: cap
+    k.start()
+    try:
+        time.sleep(0.3)
+        k.fokus_setzen(120)
+        time.sleep(0.3)
+        assert cap.gesetzt[cv2.CAP_PROP_AUTOFOCUS] == 0
+        assert cap.gesetzt[cv2.CAP_PROP_FOCUS] == 120
+        assert k.status()["autofokus"] is False
+        assert k.status()["fokus"] == 42.0  # FakeCap meldet immer 42
+        # Autofokus: kurz wieder an, danach (Einlauf 0 s) erneut festgehalten
+        cap.gesetzt.clear()
+        k.fokus_setzen(-1)
+        time.sleep(0.3)
+        assert k.fokus == -1
+        assert cap.gesetzt[cv2.CAP_PROP_AUTOFOCUS] == 0  # nach dem Einlauf wieder fest
+        assert cap.gesetzt[cv2.CAP_PROP_FOCUS] == 42.0  # eingeregelter Wert übernommen
+    finally:
+        k.stop()
