@@ -57,6 +57,12 @@
       <label><input type="file" id="datei" accept="image/*" hidden><button onclick="document.getElementById('datei').click()">Foto laden …</button></label>
       <div class="balken" title="Karte liegt ruhig"><div id="stabil"></div></div>
     </div>
+    <div class="leiste" id="fokusleiste" title="Bildschärfe der Webcam – wirkt sofort und wird gespeichert">
+      <label for="fokus">Fokus</label>
+      <input type="range" id="fokus" min="0" max="255" step="1" style="flex:1;min-width:120px">
+      <input type="number" id="fokuszahl" min="0" max="4095" style="width:70px;font:inherit;padding:3px 5px">
+      <button id="btnAutofokus" title="Autofokus kurz arbeiten lassen und den Wert dann festhalten">Autofokus</button>
+    </div>
     <p id="kamerainfo" class="hinweis"></p>
 
     <h2 style="margin-top:18px">Letzte Ergebnisse</h2>
@@ -187,6 +193,27 @@ $('btnAufnehmen').onclick = async () => {
   catch (err) { $('kamerainfo').textContent = err.message; }
 };
 
+// ---- Fokus: Regler wirkt sofort (leicht verzögert, damit nicht jeder Pixel einen Request auslöst)
+let fokusBedient = 0;          // Zeitpunkt der letzten Bedienung – solange nicht vom Status überschreiben
+let fokusTimer = null;
+function fokusSenden(wert) {
+  fokusBedient = Date.now();
+  clearTimeout(fokusTimer);
+  fokusTimer = setTimeout(async () => {
+    try {
+      await api('/api/kamera/fokus', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({wert})});
+      if ($('e_kamera_fokus')) $('e_kamera_fokus').value = wert;
+    } catch (err) { $('kamerainfo').textContent = err.message; }
+  }, 150);
+}
+function fokusAnzeigen(wert) {
+  if (wert > +$('fokus').max) $('fokus').max = Math.ceil(wert / 255) * 255;  // Kameras mit größerem Bereich
+  $('fokus').value = wert; $('fokuszahl').value = wert;
+}
+$('fokus').oninput = () => { $('fokuszahl').value = $('fokus').value; fokusSenden(+$('fokus').value); };
+$('fokuszahl').onchange = () => { const w = Math.max(0, Math.round(+$('fokuszahl').value || 0)); fokusAnzeigen(w); fokusSenden(w); };
+$('btnAutofokus').onclick = () => fokusSenden(-1);
+
 $('datei').onchange = async (ev) => {
   const f = ev.target.files[0]; if (!f) return;
   const fd = new FormData(); fd.append('datei', f);
@@ -206,6 +233,9 @@ async function poll() {
     if (offen && !csvWarteteVorher) csvWarteteVorher = true;
     else if (!offen && csvWarteteVorher) { csvWarteteVorher = false; ladeErgebnisse(); }
     $('kamerainfo').textContent = k.fehler && k.fehler !== 'deaktiviert' ? k.fehler : (s.meldung || (k.wartet_auf_neue_karte ? 'Aufgenommen – Karte wegnehmen für die nächste.' : ''));
+    $('fokusleiste').hidden = !k.kamera_ok;
+    if (k.fokus != null && k.fokus >= 0 && Date.now() - fokusBedient > 2000 && document.activeElement !== $('fokuszahl')) fokusAnzeigen(Math.round(k.fokus));
+    $('btnAutofokus').classList.toggle('primaer', !!k.autofokus);
     $('stabil').style.width = Math.round((k.stabil || 0) * 100) + '%';
     if (k.kamera_ok && !streamGestartet) { $('live').src = '/stream.mjpg'; $('live').hidden = false; $('keinekamera').hidden = true; streamGestartet = true; }
     if (s.entwurf && s.entwurf.karte.zeitstempel !== aktuellerEntwurf) {
@@ -228,7 +258,7 @@ async function ladeErgebnisse() {
 const EINST = [
   ['csv_pfad', 'CSV-Datei'], ['nummer_min', 'Schützennummer von'], ['nummer_max', 'Schützennummer bis'],
   ['kamera_index', 'Kamera-Nr.'], ['kamera_festhalten', 'Fokus/Belichtung festhalten', 'ja'],
-  ['kamera_fokus', 'Fester Fokus (−1 = automatisch ermittelt)'],
+  ['kamera_fokus', 'Fester Fokus (−1 = automatisch ermittelt, Regler oben wirkt sofort)'],
   ['stabile_frames', 'Ruhe-Frames bis Aufnahme'], ['stabil_toleranz', 'Ruhe-Toleranz (Anteil der Raute)'],
   ['aufnahme_bilder', 'Bilder je Aufnahme (Abstimmung)'],
   ['linienbreite_mm', 'Linienbreite (mm)'], ['toleranz_mm', 'Unsicher-Toleranz (mm)'],

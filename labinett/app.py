@@ -121,6 +121,11 @@ class SpeichernAnfrage(BaseModel):
     bemerkung: str = ""
 
 
+class FokusAnfrage(BaseModel):
+    wert: int  # ≥ 0 fester Fokus, -1 = Autofokus
+
+
+
 def _speichern_unter_dialog(aktuell: Path) -> str | None:
     """Zeigt den Dateidialog des Betriebssystems; ``None`` bei Abbruch oder ohne Anzeige."""
     erg: list[str | None] = [None]
@@ -271,6 +276,18 @@ def erstelle_app(
             raise HTTPException(409, "Keine Kamera aktiv")
         kamera.treiber_dialog()
         return {"ok": True}
+
+    @app.post("/api/kamera/fokus")
+    def kamera_fokus(anfrage: FokusAnfrage) -> dict:
+        """Fokus sofort ändern (-1 = Autofokus neu scharfstellen) und als Einstellung merken."""
+        if not -1 <= anfrage.wert <= 4095:
+            raise HTTPException(400, "Fokuswert muss zwischen -1 und 4095 liegen")
+        if kamera is None:
+            raise HTTPException(409, "Keine Kamera aktiv")
+        kamera.fokus_setzen(anfrage.wert)
+        einst.kamera_fokus = anfrage.wert
+        config.speichern(einst, config_pfad)
+        return {"ok": True, "fokus": anfrage.wert}
 
     @app.post("/api/bild")
     async def bild(datei: UploadFile = File(...)) -> dict:
