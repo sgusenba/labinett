@@ -3,6 +3,8 @@
 Auswertung der **Nikolo-Glücksscheibe** (Schützenverein Bad Zell) per USB-Webcam.
 Läuft lokal unter Windows, Bedienung im Browser, Ergebnisse landen in einer CSV-Datei.
 
+**Installation unter Windows:** siehe [docs/INSTALLATION.md](docs/INSTALLATION.md).
+
 ## So funktioniert's
 
 1. `labinett.exe` starten – der Browser öffnet sich mit der Oberfläche.
@@ -59,7 +61,9 @@ pyinstaller labinett.spec # baut dist/labinett(.exe)
 ```
 
 Die Windows-`.exe` baut GitHub Actions bei jedem Push auf `main`
-(Actions → letzter Lauf → Artefakt `labinett-windows`).
+(Actions → letzter Lauf → Artefakt `labinett-windows`). Ein Versions-Tag
+(`git tag v0.1.1 && git push origin v0.1.1`) legt zusätzlich ein Release mit der
+`.exe` an, das ohne GitHub-Konto heruntergeladen werden kann.
 
 ### Aufbau
 
