@@ -108,12 +108,17 @@ Die magischen Zahlen (`.045*S`, `.058`, `.09`, Klemmen …) wandern dokumentiert
 
 1. **Kreis finden** wie in der Spec (ringförmige dunkle Komponente außerhalb des Rasters).
 2. **Innenfläche ausschneiden**, auf feste Größe bringen, Schwellwert (adaptiv), Kreisring entfernen.
-3. **Ziffern trennen** über Komponenten, von links nach rechts; 1–3 Ziffern erwartet (einstellbar).
-4. **Jede Ziffer klassifizieren** mit einem kleinen CNN (`digits.onnx`, über `cv2.dnn`, keine Zusatzbibliothek). Ausgabe: Ziffer + Wahrscheinlichkeit.
+3. **Ziffern trennen** über Komponenten, von links nach rechts; **1–3 Ziffern**, handgeschrieben. Zerfallene Ziffern (z. B. eine 4 oder 5 aus zwei Strichen) werden über Überlappung in x zusammengeführt, zusammenhängende Ziffern über die Breite (> 1,4× typische Ziffernbreite) an der dünnsten Stelle getrennt. Mehr als 3 Teile → unsicher.
+4. **Jede Ziffer klassifizieren** mit einem kleinen CNN (`digits.onnx`, über `cv2.dnn`, keine Zusatzbibliothek). Ausgabe: Ziffer + Wahrscheinlichkeit. Zusätzlich werden die zwei besten Trennungen bewertet; liegen sie nah beieinander, gilt die Nummer als unsicher.
 5. **Mehrere Bilder abstimmen:** Die Nummer wird in den letzten ruhigen Livebildern und in der Aufnahme gelesen. Stimmen sie überein, steigt die Sicherheit.
 6. **Sicherheit** = kleinste Ziffern-Wahrscheinlichkeit × Übereinstimmung. Ab einer Schwelle (Standard 90 %) gilt die Nummer als erkannt; darunter wird sie nur vorgeschlagen und das Eingabefeld bekommt den Fokus.
 
-Modell: Start mit einem Modell aus gedruckten Ziffern (mehrere Schriften, verzerrt, verrauscht) plus MNIST für Handschrift. Sobald echte Karten durchlaufen, speichert die App die Ziffernausschnitte samt bestätigter Nummer in `%APPDATA%\Nikolo\samples\`; daraus wird nachtrainiert. Das Modell ist austauschbar, ohne Code zu ändern.
+**Handschrift – realistische Erwartung:** Einzelne handgeschriebene Ziffern erkennt ein gutes Modell zu etwa 98–99 %, eine dreistellige Nummer also zu ~95 %. Schwierig sind 1/7, 4/9, 3/5 und Ziffern, die den Kreisring berühren. Deshalb:
+
+- **Lieber nachfragen als falsch speichern:** Die Schwelle für „sicher“ wird an echten Karten so eingestellt, dass praktisch keine falschen Nummern automatisch gespeichert werden. Am Anfang wird öfter nachgefragt.
+- **Modell:** Start mit EMNIST-Ziffern (Handschrift, ~280 000 Beispiele), mit Verzerrung, Strichstärke, Unschärfe und Rauschen aufbereitet, damit es zu Kugelschreiber/Filzstift auf Karton passt. Sobald echte Karten durchlaufen, speichert die App die Ausschnitte samt bestätigter Nummer in `%APPDATA%\Nikolo\samples\`; daraus wird nachtrainiert. Das Modell ist austauschbar, ohne Code zu ändern.
+- **Plausibilität:** optional eine Teilnehmerliste (CSV mit gültigen Nummern) oder ein Nummernbereich in den Einstellungen. Eine gelesene Nummer, die es nicht gibt, gilt als unsicher; bei knappen Fällen gewinnt die gültige Variante.
+- **Hilfe am Papier:** Ziffern groß, ohne Berührung des Kreisrings und ohne Durchstreichen schreiben lassen. Das bringt mehr als jedes Modell.
 
 Fallback, wenn kein Kreis gefunden wird: Feld leer, Fokus ins Eingabefeld, Ausschnitt des Fotos rund um das Raster zur Orientierung.
 
@@ -179,7 +184,7 @@ stateDiagram-v2
 | DELETE | `/api/capture` | verwerfen |
 | GET / DELETE | `/api/results`, `/api/results/{id}` | gespeicherte Karten |
 | GET | `/api/results.csv` | CSV herunterladen |
-| GET / PUT | `/api/settings`, GET `/api/cameras` | Kamera, Auflösung, Drehung, automatisch speichern, Fokus/Belichtung, CSV-Pfad, Nummern-Schwelle, QR an/aus |
+| GET / PUT | `/api/settings`, GET `/api/cameras` | Kamera, Auflösung, Drehung, automatisch speichern, Fokus/Belichtung, CSV-Pfad, Nummern-Schwelle, Nummernbereich/Teilnehmerliste, QR an/aus |
 | POST | `/api/settings/csv/browse` | Windows-Dialog „Speichern unter“ öffnen und Pfad übernehmen |
 
 Bewertung und Korrekturen rechnet nur der Server – eine Quelle der Wahrheit.
@@ -233,7 +238,8 @@ ID;Datum;Schützennummer;Nummer erkannt;UUID;Schuss 1;Schuss 2;Schuss 3;Schuss 4
 - Schritt 1: Schützennummer automatisch lesen, sonst eintippen. QR/UUID ist vorbereitet, kommt später.
 - CSV-Speicherort ist einstellbar.
 
+- Schützennummer ist handgeschrieben, höchstens 3-stellig.
+
 ## Offen
 
-- Ist die Nummer gedruckt oder handgeschrieben? (Gedruckt ist deutlich zuverlässiger; der Kommentar im Prototyp sagt handschriftlich, der Prompt gedruckt.)
-- Wie viele Stellen hat die Nummer höchstens (Prototyp: 1–3)?
+- Gibt es eine Teilnehmerliste oder einen festen Nummernbereich, gegen den geprüft werden kann?
