@@ -1,7 +1,9 @@
 """Erkennung auf echten Fotos (testdata/).
 
-Referenz ist das handschriftlich auf der Karte notierte Ergebnis. Bei Karten,
-deren Notizen widersprüchlich sind, wird nur die Anzahl der Schüsse geprüft.
+Referenz ist das handschriftlich auf der Karte notierte Ergebnis. Weicht die
+Handwertung nur bei Grenzfällen ab, muss die Erkennung genau diese Schüsse als
+unsicher markieren. ``nikolo_*`` sind Handyfotos, ``WIN_*`` Webcam-Aufnahmen
+(1920 × 1080), teils von denselben Karten.
 """
 
 from pathlib import Path
@@ -21,7 +23,10 @@ def auswerten(name):
     bild = cv2.imread(str(TESTDATA / name))
     assert bild is not None, name
     erk = erkenne(bild, GEO)
-    return bild, erk, werte_aus(erk.positionen, GEO, "1")
+    return bild, erk, werte_aus(erk.positionen, GEO, "1", geteilt=erk.geteilt)
+
+
+WEBCAM = "WIN_20261118_20_{}_Pro.jpg".format
 
 
 @pytest.mark.parametrize(
@@ -33,6 +38,13 @@ def auswerten(name):
         ("nikolo_06.jpg", 71, [16, 28, 12, 1, 14]),
         # Karte 7: Kartenbox 98, Nebenrechnung links unten 131 – Erkennung entspricht 131
         ("nikolo_07.jpg", 131, [14, 33, 13, 20, 51]),
+        # Webcam
+        (WEBCAM("18_20"), 104, [43, 13, 13, 13, 22]),  # Karte von nikolo_01
+        (WEBCAM("18_05"), 147, [53, 13, 30, 29, 22]),  # Karte von nikolo_04
+        (WEBCAM("18_41"), 131, [14, 33, 13, 20, 51]),  # Karte von nikolo_07
+        (WEBCAM("18_51"), 59, [10, 10, 12, 1, 26]),
+        # ohne Handwertung, Felder am Foto nachgezählt; Schuss 5+10+16 ist ein Grenzfall
+        (WEBCAM("19_03"), 94, [31, 16, 17, 16, 14]),
     ],
 )
 def test_gesamt_wie_auf_karte(name, gesamt, schusswerte):
@@ -42,10 +54,66 @@ def test_gesamt_wie_auf_karte(name, gesamt, schusswerte):
     assert sorted(s.wert for s in karte.schuesse) == sorted(schusswerte)
 
 
-@pytest.mark.parametrize("name", ["nikolo_02.jpg", "nikolo_05.jpg"])
-def test_widerspruechliche_karten_fuenf_schuesse(name):
+@pytest.mark.parametrize(
+    "name, hand",
+    [
+        # Notizen 43, 28, 53, 13, 1 = 138: zwei Löcher berühren laut Hand die Linie knapp mehr
+        ("nikolo_02.jpg", [43, 28, 53, 13, 1]),
+        (WEBCAM("17_53"), [43, 28, 53, 13, 1]),
+        # Notizen 53, 15+13+7, 13, 13, 22 = 136: Eckschuss ohne die 18
+        ("nikolo_05.jpg", [53, 35, 13, 13, 22]),
+        (WEBCAM("18_29"), [53, 35, 13, 13, 22]),
+    ],
+)
+def test_abweichung_zur_handwertung_nur_bei_unsicheren_schuessen(name, hand):
     _, _, karte = auswerten(name)
     assert len(karte.schuesse) == 5
+    assert karte.status == "pruefen"
+    rest = list(hand)
+    for s in karte.schuesse:
+        if not s.unsicher:
+            assert s.wert in rest, (s.nr, s.felder)
+            rest.remove(s.wert)
+
+
+def test_karte_19_22_fuenf_schuesse():
+    """Box sagt 85, die Felder ergeben 83 (17+19, 17, 1, 1+14, 14) – kein Grenzfall in Sicht."""
+    _, _, karte = auswerten(WEBCAM("19_22"))
+    assert sorted(s.wert for s in karte.schuesse) == sorted([36, 17, 1, 15, 14])
+
+
+@pytest.mark.parametrize(
+    "webcam, handy",
+    [("17_53", "nikolo_02.jpg"), ("18_05", "nikolo_04.jpg"), ("18_20", "nikolo_01.jpg"),
+     ("18_29", "nikolo_05.jpg"), ("18_41", "nikolo_07.jpg")],
+)
+def test_webcam_und_handy_liefern_gleiche_lochlagen(webcam, handy):
+    """Gleiche Karte, andere Kamera: Lochmittelpunkte stimmen auf 0,5 mm überein."""
+    a = sorted(auswerten(WEBCAM(webcam))[1].positionen)
+    b = sorted(auswerten(handy)[1].positionen)
+    assert len(a) == len(b) == 5
+    for (ua, va), (ub, vb) in zip(a, b):
+        assert max(abs(ua - ub), abs(va - vb)) * GEO.feldgroesse_mm < 0.5
+
+
+@pytest.mark.parametrize("name", [WEBCAM("18_51"), WEBCAM("18_05")])
+@pytest.mark.parametrize("stoerung", ["drehung", "720p", "unschaerfe", "dunkel"])
+def test_webcam_robust(name, stoerung):
+    """Leichte Drehung, 720p, Unschärfe und schwaches Licht ändern das Ergebnis nicht."""
+    bild = cv2.imread(str(TESTDATA / name))
+    h, w = bild.shape[:2]
+    if stoerung == "drehung":
+        M = cv2.getRotationMatrix2D((w / 2, h / 2), 5, 1.0)
+        bild = cv2.warpAffine(bild, M, (w, h), borderMode=cv2.BORDER_REPLICATE)
+    elif stoerung == "720p":
+        bild = cv2.resize(bild, (1280, 720), interpolation=cv2.INTER_AREA)
+    elif stoerung == "unschaerfe":
+        bild = cv2.GaussianBlur(bild, (0, 0), 1.5)
+    else:
+        bild = (bild * 0.6).astype(bild.dtype)
+    ref = sorted(s.wert for s in auswerten(name)[2].schuesse)
+    erk = erkenne(bild, GEO)
+    assert sorted(s.wert for s in werte_aus(erk.positionen, GEO).schuesse) == ref
 
 
 def test_nummern_ausschnitt_hat_kreis():

@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 
 from .scheibe import Geometrie, Treffer, bewerte_schuss
 
 SCHUESSE_PRO_KARTE = 5
+
+# Löcher aus einem aufgeteilten Fleck (überlappende Treffer) liegen ungenauer:
+# auf den Testfotos streut ihr Mittelpunkt unter Drehung/Unschärfe/Auflösung bis
+# 0,8 mm (einzelne Löcher bis 0,7 mm, 99 % unter 0,35 mm). Für sie gilt daher die
+# doppelte Unsicherheits-Toleranz.
+TOLERANZ_FAKTOR_GETEILT = 2.0
 
 
 @dataclass
@@ -87,11 +93,18 @@ def werte_aus(
     schuetzennummer: str | None = None,
     nummer_quelle: str | None = None,
     karten_uuid: str | None = None,
+    geteilt: list[bool] | None = None,
 ) -> Karte:
-    """Wertet Lochmittelpunkte (Rasterkoordinaten) zu einer Karte aus."""
+    """Wertet Lochmittelpunkte (Rasterkoordinaten) zu einer Karte aus.
+
+    ``geteilt`` markiert je Position Löcher aus überlappenden Flecken; für sie
+    gilt eine weitere Unsicherheits-Toleranz (``TOLERANZ_FAKTOR_GETEILT``).
+    """
+    geo_geteilt = replace(geo, toleranz_mm=geo.toleranz_mm * TOLERANZ_FAKTOR_GETEILT)
     schuesse = []
     for nr, (u, v) in enumerate(positionen, start=1):
-        t: Treffer = bewerte_schuss(u, v, geo)
+        g = bool(geteilt and geteilt[nr - 1])
+        t: Treffer = bewerte_schuss(u, v, geo_geteilt if g else geo)
         schuesse.append(Schuss(nr=nr, pos_u=u, pos_v=v, felder=t.felder, unsicher=t.unsicher))
     if nummer_quelle is None:
         nummer_quelle = "manuell" if schuetzennummer else "fehlt"
