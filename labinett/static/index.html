@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>labinett – Nikolo-Auswertung</title>
+<style>
+  :root { --bg:#f4f1ea; --karte:#fffdf8; --text:#222; --grau:#777; --ok:#1d7a34; --warn:#c46a00; --fehler:#b3261e; --akzent:#1f4e8c; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.4 system-ui, "Segoe UI", sans-serif; background:var(--bg); color:var(--text); }
+  header { display:flex; align-items:center; gap:16px; padding:10px 18px; background:#2a2a2a; color:#fff; }
+  header h1 { font-size:18px; margin:0; font-weight:600; }
+  header .status { margin-left:auto; font-size:13px; opacity:.85; }
+  main { display:grid; grid-template-columns: minmax(320px, 1fr) minmax(380px, 1fr); gap:16px; padding:16px; }
+  section { background:var(--karte); border-radius:10px; padding:14px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  h2 { font-size:15px; margin:0 0 10px; }
+  #live { width:100%; border-radius:6px; background:#333; min-height:200px; display:block; }
+  .leiste { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; align-items:center; }
+  button { font:inherit; padding:8px 14px; border-radius:6px; border:1px solid #bbb; background:#fff; cursor:pointer; }
+  button.primaer { background:var(--akzent); color:#fff; border-color:var(--akzent); }
+  button:disabled { opacity:.5; cursor:default; }
+  .balken { height:6px; background:#ddd; border-radius:3px; overflow:hidden; flex:1; min-width:120px; }
+  .balken div { height:100%; background:var(--warn); width:0; transition:width .2s; }
+  .leer { color:var(--grau); padding:30px 0; text-align:center; }
+  .entwurf { display:grid; grid-template-columns: 1fr 170px; gap:12px; }
+  .entwurf img.haupt { width:100%; border-radius:6px; }
+  .nummer img { width:160px; border-radius:6px; display:block; }
+  .nummer input { width:160px; font-size:28px; text-align:center; margin-top:6px; padding:4px; }
+  table { width:100%; border-collapse:collapse; margin-top:10px; }
+  th, td { text-align:left; padding:5px 6px; border-bottom:1px solid #eee; }
+  td input { width:100%; font:inherit; padding:3px 5px; }
+  tr.unsicher td { background:#fff3e0; }
+  .gesamt { font-size:26px; font-weight:700; margin:10px 0 4px; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; color:#fff; }
+  .badge.ok { background:var(--ok); } .badge.pruefen { background:var(--warn); }
+  .hinweis { color:var(--warn); font-size:13px; }
+  .fehler { color:var(--fehler); }
+  details { margin-top:10px; }
+  .einst { display:grid; grid-template-columns: 1fr 110px; gap:6px 10px; align-items:center; margin-top:8px; }
+  .einst input { font:inherit; padding:3px 5px; }
+  #ergebnisse td, #ergebnisse th { font-size:13px; }
+  @media (max-width: 900px) { main { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>labinett · Nikolo-Glücksscheibe</h1>
+  <span class="status" id="kopfstatus">…</span>
+</header>
+<main>
+  <section>
+    <h2>Kamera</h2>
+    <img id="live" alt="Live-Bild" hidden>
+    <div id="keinekamera" class="leer" style="background:#333;color:#bbb;border-radius:6px">Kein Kamerabild – Foto laden geht trotzdem.</div>
+    <div class="leiste">
+      <button id="btnAufnehmen" class="primaer">Jetzt aufnehmen</button>
+      <label><input type="file" id="datei" accept="image/*" hidden><button onclick="document.getElementById('datei').click()">Foto laden …</button></label>
+      <div class="balken" title="Karte liegt ruhig"><div id="stabil"></div></div>
+    </div>
+    <p id="kamerainfo" class="hinweis"></p>
+
+    <h2 style="margin-top:18px">Letzte Ergebnisse</h2>
+    <table id="ergebnisse"><thead><tr><th>Zeit</th><th>Nr.</th><th>Schüsse</th><th>Gesamt</th><th>Status</th></tr></thead><tbody></tbody></table>
+    <p class="hinweis" id="csvpfad"></p>
+
+    <details>
+      <summary>Einstellungen</summary>
+      <div class="einst" id="einst"></div>
+      <div class="leiste"><button id="btnEinst">Speichern</button><span id="einstinfo" class="hinweis"></span></div>
+    </details>
+  </section>
+
+  <section id="auswertung">
+    <h2>Auswertung</h2>
+    <div id="inhalt" class="leer">Karte unter die Kamera legen – die Aufnahme startet automatisch, sobald sie ruhig liegt.</div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let aktuellerEntwurf = null;   // Zeitstempel des angezeigten Entwurfs
+let streamGestartet = false;
+
+async function api(pfad, opt = {}) {
+  const r = await fetch(pfad, opt);
+  const daten = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(daten.detail || r.statusText);
+  return daten;
+}
+
+function zeigeEntwurf(e) {
+  const k = e.karte;
+  const zeilen = k.schuesse.map((s) => `
+    <tr class="${s.unsicher ? 'unsicher' : ''}">
+      <td>${s.nr}</td>
+      <td><input data-nr="${s.nr}" value="${s.felder.join('+')}" placeholder="außen = leer"></td>
+      <td>${s.anriss ? 'ja' : 'nein'}</td>
+      <td class="wert">${s.wert}</td>
+    </tr>`).join('');
+  const fehlend = Math.max(0, 5 - k.schuesse.length);
+  const extra = Array.from({length: fehlend}, (_, i) => `
+    <tr class="unsicher"><td>${k.schuesse.length + i + 1}</td>
+    <td><input data-nr="${k.schuesse.length + i + 1}" value="" placeholder="nicht erkannt"></td><td></td><td class="wert">0</td></tr>`).join('');
+  const gruende = (k.gruende_pruefen || []).filter((g) => !g.startsWith('Schützennummer'));
+  $('inhalt').className = '';
+  $('inhalt').innerHTML = `
+    <div class="entwurf">
+      <img class="haupt" src="${e.bild}" alt="Erkannte Schüsse">
+      <div class="nummer">
+        <img src="${e.nummer_bild}" alt="Schützennummer">
+        <input id="nummer" value="${k.schuetzennummer || ''}" placeholder="Nr." inputmode="numeric" autocomplete="off">
+      </div>
+    </div>
+    <table>
+      <thead><tr><th>#</th><th>Felder</th><th>Anriss</th><th>Wert</th></tr></thead>
+      <tbody id="schuesse">${zeilen}${extra}</tbody>
+    </table>
+    <div class="gesamt">Gesamt: <span id="summe">${k.gesamt}</span> Punkte</div>
+    ${gruende.length ? `<p class="hinweis">Bitte prüfen: ${gruende.join(' · ')}</p>` : ''}
+    <div class="leiste">
+      <input id="bemerkung" placeholder="Bemerkung (optional)" style="flex:1;padding:7px">
+      <button id="btnSpeichern" class="primaer">Speichern (Enter)</button>
+      <button id="btnVerwerfen">Verwerfen</button>
+    </div>
+    <p id="meldung" class="fehler"></p>`;
+  document.querySelectorAll('#schuesse input').forEach((i) => i.addEventListener('input', neuSumme));
+  $('btnSpeichern').onclick = speichern;
+  $('btnVerwerfen').onclick = verwerfen;
+  $('nummer').focus();
+}
+
+function feldwerte(text) {
+  return text.split(/[+,\s]+/).filter(Boolean).map(Number);
+}
+
+function neuSumme() {
+  let summe = 0;
+  document.querySelectorAll('#schuesse tr').forEach((tr) => {
+    const w = feldwerte(tr.querySelector('input').value).reduce((a, b) => a + (b || 0), 0);
+    tr.querySelector('.wert').textContent = w;
+    summe += w;
+  });
+  $('summe').textContent = summe;
+}
+
+async function speichern() {
+  const felder = [...document.querySelectorAll('#schuesse input')].map((i) => i.value);
+  try {
+    await api('/api/speichern', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({schuetzennummer: $('nummer').value, felder, bemerkung: $('bemerkung').value}),
+    });
+    leeren();
+    ladeErgebnisse();
+  } catch (err) { $('meldung').textContent = err.message; }
+}
+
+async function verwerfen() {
+  await api('/api/verwerfen', {method: 'POST'});
+  leeren();
+}
+
+function leeren() {
+  aktuellerEntwurf = null;
+  $('inhalt').className = 'leer';
+  $('inhalt').textContent = 'Nächste Karte unter die Kamera legen.';
+}
+
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Enter' && $('btnSpeichern')) { ev.preventDefault(); speichern(); }
+  if (ev.key === 'Escape' && $('btnVerwerfen')) { ev.preventDefault(); verwerfen(); }
+});
+
+$('btnAufnehmen').onclick = async () => {
+  try { const e = await api('/api/aufnehmen', {method: 'POST'}); aktuellerEntwurf = e.karte.zeitstempel; zeigeEntwurf(e); }
+  catch (err) { $('kamerainfo').textContent = err.message; }
+};
+
+$('datei').onchange = async (ev) => {
+  const f = ev.target.files[0]; if (!f) return;
+  const fd = new FormData(); fd.append('datei', f);
+  try { const e = await api('/api/bild', {method: 'POST', body: fd}); aktuellerEntwurf = e.karte.zeitstempel; zeigeEntwurf(e); }
+  catch (err) { $('kamerainfo').textContent = err.message; }
+  ev.target.value = '';
+};
+
+async function poll() {
+  try {
+    const s = await api('/api/status');
+    const k = s.kamera;
+    $('kopfstatus').textContent = `v${s.version} · Kamera ${k.kamera_ok ? 'bereit' : 'nicht verfügbar'}`;
+    $('csvpfad').textContent = 'CSV: ' + s.csv;
+    $('kamerainfo').textContent = k.fehler && k.fehler !== 'deaktiviert' ? k.fehler : (s.meldung || (k.wartet_auf_neue_karte ? 'Aufgenommen – Karte wegnehmen für die nächste.' : ''));
+    $('stabil').style.width = Math.round((k.stabil || 0) * 100) + '%';
+    if (k.kamera_ok && !streamGestartet) { $('live').src = '/stream.mjpg'; $('live').hidden = false; $('keinekamera').hidden = true; streamGestartet = true; }
+    if (s.entwurf && s.entwurf.karte.zeitstempel !== aktuellerEntwurf) {
+      aktuellerEntwurf = s.entwurf.karte.zeitstempel;
+      zeigeEntwurf(s.entwurf);
+    }
+  } catch (_) { $('kopfstatus').textContent = 'Verbindung zum Programm verloren'; }
+  setTimeout(poll, 700);
+}
+
+async function ladeErgebnisse() {
+  const rows = await api('/api/ergebnisse');
+  $('ergebnisse').querySelector('tbody').innerHTML = rows.map((r) => `
+    <tr><td>${r.zeitstempel.slice(11, 19)}</td><td>${r.schuetzennummer}</td>
+    <td>${[1,2,3,4,5].map((n) => r['s' + n + '_wert'] || '–').join(' · ')}</td>
+    <td><b>${r.gesamt}</b></td><td><span class="badge ${r.status}">${r.status}</span></td></tr>`).join('')
+    || '<tr><td colspan="5" class="leer">Noch keine Ergebnisse</td></tr>';
+}
+
+const EINST = [
+  ['csv_pfad', 'CSV-Datei'], ['kamera_index', 'Kamera-Nr.'], ['feldgroesse_mm', 'Feldgröße (mm)'],
+  ['lochdurchmesser_mm', 'Lochdurchmesser (mm)'], ['linienbreite_mm', 'Linienbreite (mm)'],
+  ['toleranz_mm', 'Unsicher-Toleranz (mm)'], ['stabile_frames', 'Ruhe-Frames bis Aufnahme'],
+];
+async function ladeEinstellungen() {
+  const e = await api('/api/einstellungen');
+  $('einst').innerHTML = EINST.map(([k, l]) => `<label for="e_${k}">${l}</label><input id="e_${k}" value="${e[k]}">`).join('');
+}
+$('btnEinst').onclick = async () => {
+  const daten = Object.fromEntries(EINST.map(([k]) => [k, $('e_' + k).value]));
+  try { const r = await api('/api/einstellungen', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(daten)}); $('einstinfo').textContent = r.hinweis; }
+  catch (err) { $('einstinfo').textContent = err.message; }
+};
+
+poll(); ladeErgebnisse(); ladeEinstellungen();
+</script>
+</body>
+</html>
