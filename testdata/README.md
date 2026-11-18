@@ -24,7 +24,7 @@ Gesamtwert = handschriftlich auf der Karte eingetragenes Ergebnis (Referenz für
 | WIN_20261118_20_18_41_Pro.jpg | = nikolo_07 | Box 98, Nebenrechnung 131 | 131 | Box-Summe hat den Schuss 15+18 = 33 vergessen |
 | WIN_20261118_20_18_51_Pro.jpg | neu | 59 | 59 | |
 | WIN_20261118_20_19_03_Pro.jpg | neu | – | 94 | Feldwerte am Foto nachgezählt; Schuss 5+10+16 knapp, unsicher |
-| WIN_20261118_20_19_22_Pro.jpg | neu | 85 | 83 | Felder 17+19, 17, 1, 1+14, 14 = 83; kein Grenzfall erkennbar → Handsumme bitte prüfen |
+| WIN_20261118_20_19_22_Pro.jpg | neu | Box 85, richtig 83 | 83 | Felder 17+19, 17, 1, 1+14, 14 = 83 (bestätigt); Box-Summe verrechnet |
 
 Messungen auf diesen Fotos (Grundlage für die Parameter):
 

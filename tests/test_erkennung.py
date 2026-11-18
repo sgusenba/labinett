@@ -45,6 +45,8 @@ WEBCAM = "WIN_20261118_20_{}_Pro.jpg".format
         (WEBCAM("18_51"), 59, [10, 10, 12, 1, 26]),
         # ohne Handwertung, Felder am Foto nachgezählt; Schuss 5+10+16 ist ein Grenzfall
         (WEBCAM("19_03"), 94, [31, 16, 17, 16, 14]),
+        # Box sagt 85, richtig ist 83 (bestätigt)
+        (WEBCAM("19_22"), 83, [36, 17, 1, 15, 14]),
     ],
 )
 def test_gesamt_wie_auf_karte(name, gesamt, schusswerte):
@@ -74,12 +76,6 @@ def test_abweichung_zur_handwertung_nur_bei_unsicheren_schuessen(name, hand):
         if not s.unsicher:
             assert s.wert in rest, (s.nr, s.felder)
             rest.remove(s.wert)
-
-
-def test_karte_19_22_fuenf_schuesse():
-    """Box sagt 85, die Felder ergeben 83 (17+19, 17, 1, 1+14, 14) – kein Grenzfall in Sicht."""
-    _, _, karte = auswerten(WEBCAM("19_22"))
-    assert sorted(s.wert for s in karte.schuesse) == sorted([36, 17, 1, 15, 14])
 
 
 @pytest.mark.parametrize(
