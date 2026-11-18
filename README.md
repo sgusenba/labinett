@@ -3,7 +3,7 @@
 Auswertung der **Nikolo-Glücksscheibe** (Schützenverein Bad Zell) per USB-Webcam.
 Läuft lokal unter Windows, Bedienung im Browser, Ergebnisse landen in einer CSV-Datei.
 
-**Installation unter Windows:** siehe [docs/INSTALLATION.md](docs/INSTALLATION.md).
+**Projektbeschreibung:** [docs/PROJEKT.md](docs/PROJEKT.md) · **Installation unter Windows:** [docs/INSTALLATION.md](docs/INSTALLATION.md)
 
 ## So funktioniert's
 
