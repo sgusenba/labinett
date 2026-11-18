@@ -18,6 +18,10 @@ Läuft lokal unter Windows, Bedienung im Browser, Ergebnisse landen in einer CSV
 
 Ohne Kamera lässt sich über **Foto laden …** auch ein Handyfoto auswerten.
 
+**Fokus:** Unter dem Live-Bild stellt der Regler die Schärfe der Webcam sofort ein
+(der Wert wird als `kamera_fokus` gespeichert). **Autofokus** lässt die Kamera neu
+scharfstellen und hält den gefundenen Wert nach 3 s wieder fest.
+
 ## Wertung
 
 - Jeder Schuss zählt den Wert des getroffenen Feldes.
@@ -46,7 +50,7 @@ Diese Werte stehen fest in `labinett/scheibe.py` und sind nicht einstellbar.
 | `stabil_toleranz` | 0.01 | „ruhig“ = keine Rautenecke bewegt sich mehr als dieser Anteil der Diagonale |
 | `aufnahme_bilder` | 3 | so viele ruhige Bilder werden ausgewertet; die Mehrheit zählt, Abweichungen werden markiert |
 | `kamera_festhalten` | true | Fokus, Belichtung, Weißabgleich nach 3 s festhalten |
-| `kamera_fokus` | -1 | fester Fokuswert der Webcam, -1 = eingeregelten Wert übernehmen |
+| `kamera_fokus` | -1 | fester Fokuswert der Webcam, -1 = eingeregelten Wert übernehmen (Regler in der Oberfläche setzt ihn live) |
 | `nummer_min` / `nummer_max` | 1 / 250 | gültige Schützennummern |
 | `nummer_lesen` | true | handschriftliche Nummer automatisch lesen und vorschlagen |
 | `nummern_sammeln` | true | bestätigte Nummern-Ausschnitte in `nummern/` neben `labinett.json` ablegen (für späteres Nachtrainieren) |
