@@ -63,7 +63,6 @@ Im Browser unten links **Einstellungen** aufklappen:
 | Einstellung | Was tun |
 |---|---|
 | **Kamera-Nr.** | Zeigt das Live-Bild die falsche Kamera (z. B. die eingebaute Laptop-Kamera), auf `1` oder `2` stellen. |
-| **Feldgröße (mm)** | Mit einem Lineal die **Kantenlänge eines einzelnen Feldes** auf der Karte messen (entlang einer Linie, nicht quer über die Raute) und eintragen. Wichtig für die Entscheidung, ob ein Loch eine Linie berührt. |
 | **CSV-Datei** | Speicherort der Ergebnisse, z. B. `C:\Users\<Name>\Desktop\nikolo-2026.csv`, oder über **CSV-Datei wählen …** im Windows-Dialog aussuchen. Ohne Pfad landet die Datei neben der `labinett.exe`. Eine vorhandene Datei, die nicht von labinett stammt, wird abgelehnt und nie verändert. |
 | **Schützennummer von / bis** | Gültiger Bereich, Standard 1–250. Andere Nummern lassen sich nicht speichern. |
 | **Fokus/Belichtung festhalten** | Standard an: Nach 3 Sekunden hält labinett Fokus, Belichtung und Weißabgleich der Webcam fest, damit das Bild nicht ständig nachregelt. Ist das Bild danach unscharf, über **Kamera-Treiber …** den Fokus von Hand einstellen. |
@@ -104,7 +103,7 @@ freigibt. Für einen Zwischenstand trotzdem besser eine Kopie öffnen.
 | Live-Bild bleibt schwarz | USB-Port wechseln (direkt am PC, nicht am Hub), Programm neu starten. |
 | Raute wird nicht erkannt | Ganze Karte im Bild? Licht gleichmäßig? Spiegelungen vermeiden, Kamera etwas höher setzen. |
 | Löcher werden nicht oder falsch erkannt | Unterlage muss dunkel sein. Unscharfes Bild → Fokus der Webcam prüfen. |
-| Viele Schüsse orange | Feldgröße nachmessen und korrekt eintragen. |
+| Viele Schüsse orange | Bild scharf? Kamera senkrecht über der Karte? Hinweis „Kartengröße passt nicht zum Raster“ → Raute falsch erkannt, Karte gerade hinlegen und neu aufnehmen. |
 | „Port 8765 ist belegt“ | labinett läuft schon – das andere Konsolenfenster benutzen oder schließen. |
 | „… Ergebnis(se) warten“ | Die CSV ist in Excel geöffnet oder der Speicherort (USB-Stick, Netzlaufwerk) fehlt. Excel schließen bzw. Ziel wieder anstecken – die Ergebnisse werden innerhalb weniger Sekunden nachgetragen. |
 | Bild wird nach einiger Zeit unscharf oder zu dunkel | **Kamera-Treiber …** öffnen und Fokus/Belichtung von Hand einstellen, oder „Fokus/Belichtung festhalten“ ausschalten. |

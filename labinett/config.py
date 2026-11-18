@@ -25,9 +25,8 @@ class Einstellungen:
     kamera_hoehe: int = 1080
     port: int = 8765
     browser_oeffnen: bool = True
-    # Physische Maße – Feldgröße aus Testfotos geschätzt (ca. 15 mm), bitte nachmessen
-    feldgroesse_mm: float = 15.0
-    lochdurchmesser_mm: float = 4.5
+    # Feldgröße (16 mm) und Kaliber (4,5 mm) sind fest, siehe scheibe.py.
+    # Einstellbar bleiben nur Druckstärke der Linien und Unsicherheits-Band.
     linienbreite_mm: float = 0.4
     toleranz_mm: float = 0.5
     # Auto-Aufnahme: so viele aufeinanderfolgende stabile Frames
@@ -48,8 +47,6 @@ class Einstellungen:
     @property
     def geometrie(self) -> Geometrie:
         return Geometrie(
-            feldgroesse_mm=self.feldgroesse_mm,
-            lochdurchmesser_mm=self.lochdurchmesser_mm,
             linienbreite_mm=self.linienbreite_mm,
             toleranz_mm=self.toleranz_mm,
         )

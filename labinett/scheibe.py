@@ -17,6 +17,13 @@ from dataclasses import dataclass
 
 RASTER = 5
 
+# Feste Maße – nicht einstellbar
+KARTE_MM = 170.0  # Karte 170 × 170 mm, Format der Standard-Luftpistolenscheibe (ISSF 10 m)
+KALIBER_MM = 4.5  # Lochdurchmesser: es wird immer Kaliber 4,5 mm geschossen
+# Kantenlänge eines Feldes. Aus den Testfotos über die Kartengröße ermittelt:
+# die Karte ist 10,5–10,6 Feldbreiten lang → 170 mm / 10,6 ≈ 16,0 mm (Raster 80 × 80 mm).
+FELD_MM = 16.0
+
 # FELD[i][j] – aufgedruckter Wert des Feldes (i, j)
 FELD: tuple[tuple[int, ...], ...] = (
     (23, 5, 20, 8, 24),
@@ -34,10 +41,14 @@ POSITION: dict[int, tuple[int, int]] = {
 
 @dataclass(frozen=True)
 class Geometrie:
-    """Physische Maße der Scheibe. Alle Längen in Millimetern."""
+    """Physische Maße der Scheibe. Alle Längen in Millimetern.
 
-    feldgroesse_mm: float
-    lochdurchmesser_mm: float = 4.5  # Luftgewehr
+    Feldgröße und Lochdurchmesser sind durch Karte und Kaliber fest vorgegeben
+    (siehe ``FELD_MM``, ``KALIBER_MM``); sie bleiben hier nur für Tests änderbar.
+    """
+
+    feldgroesse_mm: float = FELD_MM
+    lochdurchmesser_mm: float = KALIBER_MM
     linienbreite_mm: float = 0.0
     toleranz_mm: float = 0.5  # so nah an der Schwelle wird ein Schuss als unsicher markiert
 

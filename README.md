@@ -28,14 +28,17 @@ Grenzfälle (Loch innerhalb der Toleranz an einer Linie), fehlende Schüsse oder
 eine fehlende Nummer werden orange markiert und in der CSV mit Status `pruefen`
 abgelegt.
 
+## Feste Maße
+
+Karte 170 × 170 mm (Format der Luftpistolenscheibe), Kaliber 4,5 mm, Feld 16 mm.
+Diese Werte stehen fest in `labinett/scheibe.py` und sind nicht einstellbar.
+
 ## Einstellungen (`labinett.json` neben der .exe)
 
 | Schlüssel | Standard | Bedeutung |
 |---|---|---|
 | `csv_pfad` | `ergebnisse.csv` | relativ zur .exe oder absolut |
 | `kamera_index` | 0 | welche Webcam |
-| `feldgroesse_mm` | 15.0 | Kantenlänge eines Feldes – **bitte an einer Karte nachmessen** |
-| `lochdurchmesser_mm` | 4.5 | Luftgewehr |
 | `linienbreite_mm` | 0.4 | Druckstärke der Linien |
 | `toleranz_mm` | 0.5 | so nah an der Berührungsgrenze → „prüfen“ |
 | `stabile_frames` | 8 | Ruhe-Frames bis zur Auto-Aufnahme |

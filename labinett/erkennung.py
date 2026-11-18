@@ -22,7 +22,7 @@ import cv2
 import numpy as np
 
 from .karte import SCHUESSE_PRO_KARTE
-from .scheibe import Geometrie
+from .scheibe import FELD_MM, KARTE_MM, Geometrie
 
 PX = 100  # Pixel pro Feld im Normbild
 RAND = 0.6  # Rand ums Raster im Normbild, in Feldbreiten
@@ -275,9 +275,50 @@ def erkenne(bild_bgr: np.ndarray, geo: Geometrie, drehung: int = 0) -> Erkennung
     hinweise = []
     if len(positionen) != SCHUESSE_PRO_KARTE:
         hinweise.append(f"{len(positionen)} Löcher erkannt")
+    if (abw := kartengroesse_abweichung(grau, ecken)) is not None and abw > KARTE_TOLERANZ:
+        hinweise.append(
+            f"Kartengröße passt nicht zum Raster ({abw:.0%} Abweichung) – Raute evtl. falsch erkannt"
+        )
     return Erkennung(
         ecken_bild=ecken, positionen=positionen, loch_flaeche_rel=rel, hinweise=hinweise, normbild=norm
     )
+
+
+# ---------------------------------------------------------------- Kartengröße
+
+KARTE_FELDER = KARTE_MM / FELD_MM  # Soll-Kantenlänge der Karte in Feldbreiten (≈ 10,6)
+KARTE_TOLERANZ = 0.08  # Messungen auf den Testfotos streuen um ±4 %
+
+
+def kartenseiten_felder(grau: np.ndarray, ecken: np.ndarray) -> list[float] | None:
+    """Seitenlängen der Karte in Feldbreiten.
+
+    ``None``, wenn die Karte nicht vollständig im Bild liegt oder sich nicht als
+    Viereck vom Untergrund abhebt.
+    """
+    H, W = grau.shape
+    _, th = cv2.threshold(cv2.GaussianBlur(grau, (9, 9), 0), 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    th = cv2.morphologyEx(th, cv2.MORPH_CLOSE, np.ones((25, 25), np.uint8))
+    konturen, _ = cv2.findContours(th, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    mx, my = (float(x) for x in ecken.mean(axis=0))
+    konturen = [k for k in konturen if cv2.pointPolygonTest(k, (mx, my), False) > 0]
+    if not konturen:
+        return None
+    huelle = cv2.convexHull(max(konturen, key=cv2.contourArea))
+    q = cv2.approxPolyDP(huelle, 0.02 * cv2.arcLength(huelle, True), True).reshape(-1, 2)
+    rand = 5
+    if len(q) != 4 or (q[:, 0] < rand).any() or (q[:, 1] < rand).any() or (q[:, 0] >= W - rand).any() or (q[:, 1] >= H - rand).any():
+        return None
+    r = cv2.perspectiveTransform(q.astype(np.float32)[None], _homographie(ecken))[0] / PX
+    return [float(np.linalg.norm(r[i] - r[(i + 1) % 4])) for i in range(4)]
+
+
+def kartengroesse_abweichung(grau: np.ndarray, ecken: np.ndarray) -> float | None:
+    """Größte relative Abweichung einer Kartenseite vom Sollmaß, ``None`` wenn nicht messbar."""
+    seiten = kartenseiten_felder(grau, ecken)
+    if seiten is None:
+        return None
+    return max(abs(s / KARTE_FELDER - 1) for s in seiten)
 
 
 def ecken_stabil(a: np.ndarray | None, b: np.ndarray | None, toleranz_px: float = 6.0) -> bool:

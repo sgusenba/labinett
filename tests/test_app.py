@@ -55,10 +55,14 @@ def test_ungueltiges_feld(tmp_path):
 
 def test_einstellungen(tmp_path):
     c = client(tmp_path)
-    assert c.post("/api/einstellungen", json={"feldgroesse_mm": "16"}).status_code == 200
-    assert c.get("/api/einstellungen").json()["feldgroesse_mm"] == 16.0
+    assert c.post("/api/einstellungen", json={"linienbreite_mm": "0.3"}).status_code == 200
+    assert c.get("/api/einstellungen").json()["linienbreite_mm"] == 0.3
     assert (tmp_path / "labinett.json").exists()
-    assert c.post("/api/einstellungen", json={"feldgroesse_mm": "0"}).status_code == 400
+    assert c.post("/api/einstellungen", json={"toleranz_mm": "-1"}).status_code == 400
+    # Feldgröße und Kaliber sind fest und lassen sich nicht verstellen
+    c.post("/api/einstellungen", json={"feldgroesse_mm": "20", "lochdurchmesser_mm": "6"})
+    e = c.get("/api/einstellungen").json()
+    assert "feldgroesse_mm" not in e and "lochdurchmesser_mm" not in e
 
 
 def test_startseite(tmp_path):
