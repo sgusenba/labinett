@@ -39,11 +39,11 @@ Testkarten zeigen mehrfach korrigierte Nebenrechnungen.
 
 | Bereich | Funktion |
 |---|---|
-| Aufnahme | Live-Bild der Webcam, automatische Aufnahme, sobald die Karte ruhig liegt; manuelle Aufnahme; alternativ Foto hochladen |
+| Aufnahme | Live-Bild der Webcam, automatische Aufnahme, sobald die Karte ruhig liegt; Auswertung von 3 Bildern mit Mehrheitsentscheid; Fokus/Belichtung festgehalten; manuelle Aufnahme; alternativ Foto hochladen |
 | Erkennung | Raute finden und entzerren, Löcher finden, überlappende Löcher aufteilen |
 | Wertung | Feldzuordnung mit Anriss-Geometrie (Lochdurchmesser, Linienbreite, Feldgröße einstellbar) |
 | Kontrolle | erkannte Schüsse im Bild markiert, Grenzfälle orange, Felder pro Schuss korrigierbar |
-| Schützennummer | Ausschnitt des Nummernkreises wird angezeigt, Nummer wird eingetippt |
+| Schützennummer | Ausschnitt des Nummernkreises wird angezeigt, Nummer wird eingetippt, gültig 1–250 |
 | Ergebnisse | CSV (Excel-tauglich), Status `ok`/`pruefen`, Bemerkung, vorbereitete Spalte für Karten-UUID |
 | Betrieb | eine `labinett.exe`, Einstellungen in `labinett.json`, Oberfläche unter `http://127.0.0.1:8765/` |
 
@@ -93,7 +93,7 @@ GitHub Actions testet jeden Stand und baut die `.exe`.
 
 ## Qualitätssicherung
 
-- 33 automatische Tests: Feldmatrix, Linien-/Ecken-Regeln, Grenzfälle, CSV,
+- 49 automatische Tests: Feldmatrix, Linien-/Ecken-Regeln, Grenzfälle, CSV inkl. gesperrter Datei,
   Web-Schnittstelle, Auto-Aufnahme mit simulierter Kamera
 - Erkennung gegen 7 Fotos echter Karten (`testdata/`) geprüft: Bei allen Karten
   mit eindeutiger handschriftlicher Referenz stimmt das Ergebnis exakt; bei
@@ -108,10 +108,28 @@ GitHub Actions testet jeden Stand und baut die `.exe`.
 
 1. Test mit der echten Webcam am Zielrechner, Erkennung ggf. nachjustieren
 2. Feldgröße an einer Originalkarte messen und als Standard eintragen
-3. QR-Code mit Karten-UUID und Schützennummer auf den Karten – ersetzt das
-   Eintippen der Nummer
-4. Auswertung der CSV: Rangliste, Export für Siegerehrung
-5. Optional: Kamera-Drehung automatisch erkennen
+3. Handschriftliche Schützennummer automatisch lesen (siehe unten)
+4. QR-Code mit Karten-UUID auf den Karten (Spalte `karten_uuid` ist vorbereitet)
+5. Auswertung der CSV: Rangliste, Export für Siegerehrung
+6. Optional: Kamera-Drehung automatisch erkennen
+
+### Geplant: Schützennummer automatisch lesen
+
+Die Nummer ist handgeschrieben, höchstens dreistellig, gültig sind 1–250.
+
+- Kreis finden, Innenfläche ausschneiden, Ziffern trennen (zerfallene Ziffern
+  zusammenführen, zusammenhängende an der dünnsten Stelle trennen).
+- Jede Ziffer mit einem kleinen Modell (ONNX über `cv2.dnn`, offline, steckt in
+  der `.exe`) klassifizieren.
+- Nicht Ziffer für Ziffer entscheiden, sondern die **wahrscheinlichste gültige
+  Nummer 1–250** wählen. Das schließt z. B. „3xx“ oder „0x“ von selbst aus.
+- Mehrere ruhige Bilder abstimmen. Ab einer Schwelle gilt die Nummer als
+  erkannt, sonst wird sie nur vorgeschlagen und die Person bestätigt bzw.
+  tippt drüber. Lieber nachfragen als eine falsche Nummer speichern.
+- Bestätigte Ausschnitte werden gesammelt, damit das Modell nachtrainiert
+  werden kann.
+- Voraussetzung: 30–50 Karten mit gut lesbarer Nummer als Testsatz, sonst
+  lässt sich die Zuverlässigkeit nicht messen.
 
 ## Projektdaten
 

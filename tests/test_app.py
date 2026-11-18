@@ -64,3 +64,85 @@ def test_einstellungen(tmp_path):
 def test_startseite(tmp_path):
     r = client(tmp_path).get("/")
     assert r.status_code == 200 and "labinett" in r.text
+
+
+# ------------------------------------------------ Nummer, CSV-Sperre, Einstellungen, Abstimmung
+
+import cv2
+import pytest
+
+from labinett import csv_export
+
+
+def _foto(c, name="nikolo_04.jpg"):
+    with open(TESTDATA / name, "rb") as f:
+        r = c.post("/api/bild", files={"datei": (name, f, "image/jpeg")})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+@pytest.mark.parametrize("nummer", ["0", "251", "abc", "12a", "-3"])
+def test_nummer_ausserhalb_1_bis_250(tmp_path, nummer):
+    c = client(tmp_path)
+    _foto(c)
+    r = c.post("/api/speichern", json={"schuetzennummer": nummer})
+    assert r.status_code == 400 and "1 und 250" in r.json()["detail"]
+    assert c.get("/api/status").json()["entwurf"] is not None  # Entwurf bleibt
+
+
+def test_nummer_fuehrende_nullen(tmp_path):
+    c = client(tmp_path)
+    _foto(c)
+    assert c.post("/api/speichern", json={"schuetzennummer": "007"}).json()["schuetzennummer"] == "7"
+
+
+def test_gesperrte_csv_wird_nachgetragen(tmp_path, monkeypatch):
+    c = client(tmp_path)
+    echt = csv_export._schreibe_zeilen
+
+    def gesperrt(*a, **k):
+        raise PermissionError(13, "gesperrt")
+
+    monkeypatch.setattr(csv_export, "_schreibe_zeilen", gesperrt)
+    _foto(c)
+    r = c.post("/api/speichern", json={"schuetzennummer": "5"}).json()
+    assert r["csv_gespeichert"] is False and r["csv_ausstehend"] == 1
+    assert c.get("/api/status").json()["csv_ausstehend"] == 1
+
+    monkeypatch.setattr(csv_export, "_schreibe_zeilen", echt)
+    c.app.state.zustand.letzter_nachtrag = 0
+    assert c.get("/api/status").json()["csv_ausstehend"] == 0
+    assert c.get("/api/ergebnisse").json()[0]["schuetzennummer"] == "5"
+
+
+def test_csv_pfad_fremde_datei_abgelehnt(tmp_path):
+    c = client(tmp_path)
+    fremd = tmp_path / "fremd.csv"
+    fremd.write_text("a;b\n1;2\n", encoding="utf-8")
+    r = c.post("/api/einstellungen", json={"csv_pfad": str(fremd)})
+    assert r.status_code == 400 and "nicht verändert" in r.json()["detail"]
+    neu = tmp_path / "unter" / "nikolo.csv"
+    assert c.post("/api/einstellungen", json={"csv_pfad": str(neu)}).status_code == 200
+    _foto(c)
+    c.post("/api/speichern", json={"schuetzennummer": "9"})
+    assert neu.exists()
+
+
+def test_einstellungen_ja_nein_und_bereich(tmp_path):
+    c = client(tmp_path)
+    assert c.post("/api/einstellungen", json={"kamera_festhalten": "false"}).status_code == 200
+    assert c.get("/api/einstellungen").json()["kamera_festhalten"] is False
+    assert c.post("/api/einstellungen", json={"nummer_min": "300"}).status_code == 400
+
+
+def test_abstimmung_ueber_mehrere_bilder(tmp_path):
+    c = client(tmp_path)
+    z = c.app.state.zustand
+    a = cv2.imread(str(TESTDATA / "nikolo_04.jpg"))
+    b = cv2.imread(str(TESTDATA / "nikolo_06.jpg"))
+    e = z.auswerten([a, a, a], "test")
+    assert e["karte"]["gesamt"] == 147 and not any("Aufnahmen" in h for h in e["hinweise"])
+    e = z.auswerten([a, b, a], "test")  # ein Ausreißer
+    assert e["karte"]["gesamt"] == 147
+    assert any("2 von 3" in h for h in e["hinweise"])
+    assert e["karte"]["status"] == "pruefen"

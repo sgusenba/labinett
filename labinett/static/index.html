@@ -36,7 +36,7 @@
   .hinweis { color:var(--warn); font-size:13px; }
   .fehler { color:var(--fehler); }
   details { margin-top:10px; }
-  .einst { display:grid; grid-template-columns: 1fr 110px; gap:6px 10px; align-items:center; margin-top:8px; }
+  .einst { display:grid; grid-template-columns: 1fr minmax(110px, 260px); gap:6px 10px; align-items:center; margin-top:8px; }
   .einst input { font:inherit; padding:3px 5px; }
   #ergebnisse td, #ergebnisse th { font-size:13px; }
   @media (max-width: 900px) { main { grid-template-columns:1fr; } }
@@ -66,7 +66,12 @@
     <details>
       <summary>Einstellungen</summary>
       <div class="einst" id="einst"></div>
-      <div class="leiste"><button id="btnEinst">Speichern</button><span id="einstinfo" class="hinweis"></span></div>
+      <div class="leiste">
+        <button id="btnEinst">Speichern</button>
+        <button id="btnCsvDialog" title="Ort der CSV-Datei auswählen">CSV-Datei wählen …</button>
+        <button id="btnTreiber" title="Fokus, Belichtung usw. im Treiber der Webcam einstellen">Kamera-Treiber …</button>
+        <span id="einstinfo" class="hinweis"></span>
+      </div>
     </details>
   </section>
 
@@ -80,6 +85,7 @@
 const $ = (id) => document.getElementById(id);
 let aktuellerEntwurf = null;   // Zeitstempel des angezeigten Entwurfs
 let streamGestartet = false;
+let csvWarteteVorher = false;
 
 async function api(pfad, opt = {}) {
   const r = await fetch(pfad, opt);
@@ -108,7 +114,7 @@ function zeigeEntwurf(e) {
       <img class="haupt" src="${e.bild}" alt="Erkannte Schüsse">
       <div class="nummer">
         <img src="${e.nummer_bild}" alt="Schützennummer">
-        <input id="nummer" value="${k.schuetzennummer || ''}" placeholder="Nr." inputmode="numeric" autocomplete="off">
+        <input id="nummer" value="${k.schuetzennummer || ''}" placeholder="Nr." inputmode="numeric" maxlength="3" autocomplete="off">
       </div>
     </div>
     <table>
@@ -117,6 +123,7 @@ function zeigeEntwurf(e) {
     </table>
     <div class="gesamt">Gesamt: <span id="summe">${k.gesamt}</span> Punkte</div>
     ${gruende.length ? `<p class="hinweis">Bitte prüfen: ${gruende.join(' · ')}</p>` : ''}
+    ${(e.hinweise || []).length ? `<p class="hinweis">${e.hinweise.join(' · ')}</p>` : ''}
     <div class="leiste">
       <input id="bemerkung" placeholder="Bemerkung (optional)" style="flex:1;padding:7px">
       <button id="btnSpeichern" class="primaer">Speichern (Enter)</button>
@@ -146,13 +153,17 @@ function neuSumme() {
 async function speichern() {
   const felder = [...document.querySelectorAll('#schuesse input')].map((i) => i.value);
   try {
-    await api('/api/speichern', {
+    const r = await api('/api/speichern', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({schuetzennummer: $('nummer').value, felder, bemerkung: $('bemerkung').value}),
     });
     leeren();
+    if (!r.csv_gespeichert) {
+      $('inhalt').innerHTML = `<span class="fehler">CSV-Datei gesperrt oder nicht erreichbar (in Excel geöffnet?). ` +
+        `Ergebnis ist vorgemerkt (${r.csv_ausstehend} offen) und wird automatisch nachgetragen, sobald die Datei frei ist.</span>`;
+    }
     ladeErgebnisse();
-  } catch (err) { $('meldung').textContent = err.message; }
+  } catch (err) { $('meldung').textContent = err.message; $('nummer').focus(); $('nummer').select(); }
 }
 
 async function verwerfen() {
@@ -189,7 +200,11 @@ async function poll() {
     const s = await api('/api/status');
     const k = s.kamera;
     $('kopfstatus').textContent = `v${s.version} · Kamera ${k.kamera_ok ? 'bereit' : 'nicht verfügbar'}`;
-    $('csvpfad').textContent = 'CSV: ' + s.csv;
+    const offen = s.csv_ausstehend ? ` · ${s.csv_ausstehend} Ergebnis(se) warten – Datei in Excel geöffnet?` : '';
+    $('csvpfad').textContent = 'CSV: ' + s.csv + offen + (s.csv_fehler ? ' · ' + s.csv_fehler : '');
+    $('csvpfad').className = offen || s.csv_fehler ? 'fehler' : 'hinweis';
+    if (offen && !csvWarteteVorher) csvWarteteVorher = true;
+    else if (!offen && csvWarteteVorher) { csvWarteteVorher = false; ladeErgebnisse(); }
     $('kamerainfo').textContent = k.fehler && k.fehler !== 'deaktiviert' ? k.fehler : (s.meldung || (k.wartet_auf_neue_karte ? 'Aufgenommen – Karte wegnehmen für die nächste.' : ''));
     $('stabil').style.width = Math.round((k.stabil || 0) * 100) + '%';
     if (k.kamera_ok && !streamGestartet) { $('live').src = '/stream.mjpg'; $('live').hidden = false; $('keinekamera').hidden = true; streamGestartet = true; }
@@ -211,16 +226,35 @@ async function ladeErgebnisse() {
 }
 
 const EINST = [
-  ['csv_pfad', 'CSV-Datei'], ['kamera_index', 'Kamera-Nr.'], ['feldgroesse_mm', 'Feldgröße (mm)'],
-  ['lochdurchmesser_mm', 'Lochdurchmesser (mm)'], ['linienbreite_mm', 'Linienbreite (mm)'],
-  ['toleranz_mm', 'Unsicher-Toleranz (mm)'], ['stabile_frames', 'Ruhe-Frames bis Aufnahme'],
+  ['csv_pfad', 'CSV-Datei'], ['nummer_min', 'Schützennummer von'], ['nummer_max', 'Schützennummer bis'],
+  ['kamera_index', 'Kamera-Nr.'], ['kamera_festhalten', 'Fokus/Belichtung festhalten', 'ja'],
+  ['kamera_fokus', 'Fester Fokus (−1 = automatisch ermittelt)'],
+  ['stabile_frames', 'Ruhe-Frames bis Aufnahme'], ['stabil_toleranz', 'Ruhe-Toleranz (Anteil der Raute)'],
+  ['aufnahme_bilder', 'Bilder je Aufnahme (Abstimmung)'],
+  ['feldgroesse_mm', 'Feldgröße (mm)'], ['lochdurchmesser_mm', 'Lochdurchmesser (mm)'],
+  ['linienbreite_mm', 'Linienbreite (mm)'], ['toleranz_mm', 'Unsicher-Toleranz (mm)'],
 ];
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
 async function ladeEinstellungen() {
   const e = await api('/api/einstellungen');
-  $('einst').innerHTML = EINST.map(([k, l]) => `<label for="e_${k}">${l}</label><input id="e_${k}" value="${e[k]}">`).join('');
+  $('einst').innerHTML = EINST.map(([k, l, typ]) => typ === 'ja'
+    ? `<label for="e_${k}">${l}</label><input id="e_${k}" type="checkbox" ${e[k] ? 'checked' : ''} style="justify-self:start">`
+    : `<label for="e_${k}">${l}</label><input id="e_${k}" value="${esc(e[k])}">`).join('');
 }
+$('btnCsvDialog').onclick = async () => {
+  $('einstinfo').textContent = 'Dateidialog ist am Auswerte-PC geöffnet …';
+  try {
+    const r = await api('/api/csv-dialog', {method: 'POST'});
+    if (r.pfad) { $('e_csv_pfad').value = r.pfad; $('einstinfo').textContent = 'Pfad übernommen – „Speichern“ klicken.'; }
+    else $('einstinfo').textContent = 'Kein Pfad gewählt.';
+  } catch (err) { $('einstinfo').textContent = err.message; }
+};
+$('btnTreiber').onclick = async () => {
+  try { await api('/api/kamera/treiber', {method: 'POST'}); $('einstinfo').textContent = 'Treiber-Dialog geöffnet (falls die Kamera einen hat).'; }
+  catch (err) { $('einstinfo').textContent = err.message; }
+};
 $('btnEinst').onclick = async () => {
-  const daten = Object.fromEntries(EINST.map(([k]) => [k, $('e_' + k).value]));
+  const daten = Object.fromEntries(EINST.map(([k, , typ]) => [k, typ === 'ja' ? $('e_' + k).checked : $('e_' + k).value]));
   try { const r = await api('/api/einstellungen', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(daten)}); $('einstinfo').textContent = r.hinweis; }
   catch (err) { $('einstinfo').textContent = err.message; }
 };

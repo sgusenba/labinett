@@ -32,3 +32,62 @@ def test_csv_rundlauf(tmp_path):
     assert zeilen[0]["gesamt"] == "71" and zeilen[0]["status"] == "ok"
     assert zeilen[1]["s5_felder"] == "" and zeilen[1]["status"] == "pruefen"
     assert list(zeilen[0].keys()) == csv_export.SPALTEN
+
+
+# ------------------------------------------------ gesperrte Datei / Warteschlange
+
+import pytest
+
+from labinett import csv_export as ce
+
+
+def _karte(nr="1"):
+    return werte_aus(FUENF, GEO, nr)
+
+
+def test_gesperrte_csv_landet_in_warteschlange(tmp_path, monkeypatch):
+    csv_pfad, ws = tmp_path / "erg.csv", tmp_path / "ausstehend.jsonl"
+    echt = ce._schreibe_zeilen
+
+    def gesperrt(*a, **k):
+        raise PermissionError(13, "Datei in Excel geöffnet")
+
+    monkeypatch.setattr(ce, "_schreibe_zeilen", gesperrt)
+    assert ce.speichern(csv_pfad, _karte("1"), ws) is False
+    assert ce.speichern(csv_pfad, _karte("2"), ws) is False
+    assert ce.ausstehend(ws) == 2 and not csv_pfad.exists()
+    assert ce.nachtragen(csv_pfad, ws) == 2
+
+    monkeypatch.setattr(ce, "_schreibe_zeilen", echt)
+    assert ce.speichern(csv_pfad, _karte("3"), ws) is True
+    assert [z["schuetzennummer"] for z in ce.lesen(csv_pfad)] == ["1", "2", "3"]
+    assert ce.ausstehend(ws) == 0 and not ws.exists()
+
+
+def test_nachtragen_ohne_neue_karte(tmp_path, monkeypatch):
+    csv_pfad, ws = tmp_path / "erg.csv", tmp_path / "ausstehend.jsonl"
+    echt = ce._schreibe_zeilen
+    monkeypatch.setattr(ce, "_schreibe_zeilen", lambda *a, **k: (_ for _ in ()).throw(OSError("weg")))
+    ce.speichern(csv_pfad, _karte("7"), ws)
+    monkeypatch.setattr(ce, "_schreibe_zeilen", echt)
+    assert ce.nachtragen(csv_pfad, ws) == 0
+    assert ce.lesen(csv_pfad)[0]["schuetzennummer"] == "7"
+
+
+def test_fremde_datei_wird_nicht_veraendert(tmp_path):
+    fremd = tmp_path / "liste.csv"
+    fremd.write_text("Name;Verein\nMaier;Bad Zell\n", encoding="utf-8")
+    with pytest.raises(ce.FremdeDatei):
+        ce.speichern(fremd, _karte(), tmp_path / "ws.jsonl")
+    with pytest.raises(ce.FremdeDatei):
+        ce.pruefe_ziel(fremd)
+    assert fremd.read_text(encoding="utf-8") == "Name;Verein\nMaier;Bad Zell\n"
+
+
+def test_pruefe_ziel_eigene_und_neue_datei(tmp_path):
+    ce.pruefe_ziel(tmp_path / "neu" / "erg.csv")  # Ordner wird angelegt
+    eigene = tmp_path / "erg.csv"
+    ce.anhaengen(eigene, _karte())
+    ce.pruefe_ziel(eigene)
+    with pytest.raises(ce.FremdeDatei):
+        ce.pruefe_ziel(tmp_path)
