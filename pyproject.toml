@@ -25,7 +25,7 @@ labinett = "labinett.__main__:main"
 packages = ["labinett"]
 
 [tool.setuptools.package-data]
-labinett = ["static/*"]
+labinett = ["static/*", "modelle/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
