@@ -41,7 +41,7 @@ Testkarten zeigen mehrfach korrigierte Nebenrechnungen.
 |---|---|
 | Aufnahme | Live-Bild der Webcam, automatische Aufnahme, sobald die Karte ruhig liegt; Auswertung von 3 Bildern mit Mehrheitsentscheid; Fokus/Belichtung festgehalten; manuelle Aufnahme; alternativ Foto hochladen |
 | Erkennung | Raute finden und entzerren, Löcher finden, überlappende Löcher aufteilen |
-| Wertung | Feldzuordnung mit Anriss-Geometrie (Lochdurchmesser, Linienbreite, Feldgröße einstellbar) |
+| Wertung | Feldzuordnung mit Anriss-Geometrie; Kartengröße, Feldgröße und Kaliber fest, Linienbreite und Unsicher-Toleranz einstellbar |
 | Kontrolle | erkannte Schüsse im Bild markiert, Grenzfälle orange, Felder pro Schuss korrigierbar |
 | Schützennummer | Ausschnitt des Nummernkreises wird angezeigt, Nummer wird eingetippt, gültig 1–250 |
 | Ergebnisse | CSV (Excel-tauglich), Status `ok`/`pruefen`, Bemerkung, vorbereitete Spalte für Karten-UUID |
@@ -76,6 +76,32 @@ karte.py       Karte mit 5 Schüssen, Summe, Status
    └──► csv_export.py                ergebnisse.csv
 ```
 
+### Feste Maße
+
+Die Glücksscheibe hat immer dasselbe Format, geschossen wird immer dasselbe
+Kaliber. Diese Werte sind deshalb **Konstanten im Code** (`labinett/scheibe.py`)
+und keine Einstellungen:
+
+| Maß | Wert | Herkunft |
+|---|---|---|
+| Karte | 170 × 170 mm | Format der Standard-Luftpistolenscheibe (ISSF 10 m) |
+| Kaliber = Lochdurchmesser | 4,5 mm | immer Kaliber 4,5 mm |
+| Feld (Kantenlänge) | 16,0 mm | aus den Testfotos über die Kartengröße ermittelt: die Karte ist 10,5–10,6 Feldbreiten lang → Raster 80 × 80 mm |
+
+Verwendung:
+
+- **Anriss-Entscheidung:** Lochradius 2,25 mm + halbe Linienbreite, umgerechnet
+  mit 16 mm pro Feld in Rasterkoordinaten.
+- **Lochgröße in der Erkennung:** erwartete Lochfläche im entzerrten Bild, damit
+  überlappende Löcher richtig aufgeteilt werden.
+- **Plausibilitätsprüfung:** Liegt die Karte vollständig im Bild, wird ihr Rand
+  in Rasterkoordinaten umgerechnet. Sie muss 170 / 16 ≈ 10,6 Feldbreiten lang
+  sein. Weicht eine Seite um mehr als 8 % ab, ist die Raute vermutlich falsch
+  erkannt; die Karte bekommt einen Hinweis und wird geprüft.
+
+Einstellbar bleiben nur Druckstärke der Linien (`linienbreite_mm`) und das
+Unsicherheits-Band (`toleranz_mm`).
+
 **Technik:** Python 3.12, OpenCV, FastAPI/Uvicorn, reines HTML/JavaScript ohne
 Framework. Gebaut mit PyInstaller zu einer einzelnen Windows-`.exe`.
 GitHub Actions testet jeden Stand und baut die `.exe`.
@@ -93,7 +119,7 @@ GitHub Actions testet jeden Stand und baut die `.exe`.
 
 ## Qualitätssicherung
 
-- 49 automatische Tests: Feldmatrix, Linien-/Ecken-Regeln, Grenzfälle, CSV inkl. gesperrter Datei,
+- 52 automatische Tests: Feldmatrix, Linien-/Ecken-Regeln, Grenzfälle, CSV inkl. gesperrter Datei,
   Web-Schnittstelle, Auto-Aufnahme mit simulierter Kamera
 - Erkennung gegen 7 Fotos echter Karten (`testdata/`) geprüft: Bei allen Karten
   mit eindeutiger handschriftlicher Referenz stimmt das Ergebnis exakt; bei
@@ -107,7 +133,7 @@ GitHub Actions testet jeden Stand und baut die `.exe`.
 **Offen**
 
 1. Test mit der echten Webcam am Zielrechner, Erkennung ggf. nachjustieren
-2. Feldgröße an einer Originalkarte messen und als Standard eintragen
+2. Feldgröße (16,0 mm aus Fotos ermittelt) einmal mit dem Lineal an einer Originalkarte bestätigen
 3. Handschriftliche Schützennummer automatisch lesen (siehe unten)
 4. QR-Code mit Karten-UUID auf den Karten (Spalte `karten_uuid` ist vorbereitet)
 5. Auswertung der CSV: Rangliste, Export für Siegerehrung

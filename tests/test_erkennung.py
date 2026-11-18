@@ -14,7 +14,7 @@ from labinett.karte import werte_aus
 from labinett.scheibe import Geometrie
 
 TESTDATA = Path(__file__).resolve().parent.parent / "testdata"
-GEO = Geometrie(feldgroesse_mm=15.0, lochdurchmesser_mm=4.5, linienbreite_mm=0.4, toleranz_mm=0.5)
+GEO = Geometrie(linienbreite_mm=0.4, toleranz_mm=0.5)  # Feldgröße 16 mm, Kaliber 4,5 mm fest
 
 
 def auswerten(name):
@@ -57,3 +57,33 @@ def test_nummern_ausschnitt_hat_kreis():
         minRadius=40, maxRadius=90,
     )
     assert kreise is not None
+
+
+# ------------------------------------------------ feste Kartengröße
+
+from labinett.erkennung import KARTE_FELDER, kartengroesse_abweichung, kartenseiten_felder  # noqa: E402
+from labinett.scheibe import FELD_MM, KALIBER_MM, KARTE_MM  # noqa: E402
+
+
+def test_feste_masse():
+    assert KARTE_MM == 170.0 and KALIBER_MM == 4.5 and FELD_MM == 16.0
+    g = Geometrie()
+    assert g.feldgroesse_mm == FELD_MM and g.lochdurchmesser_mm == KALIBER_MM
+
+
+def test_kartengroesse_passt_zum_raster():
+    """Auf Foto 07 liegt die ganze Karte im Bild: sie muss ~170 mm / 16 mm Feldbreiten lang sein."""
+    bild = cv2.imread(str(TESTDATA / "nikolo_07.jpg"))
+    grau = cv2.cvtColor(bild, cv2.COLOR_BGR2GRAY)
+    erk = erkenne(bild, GEO)
+    seiten = kartenseiten_felder(grau, erk.ecken_bild)
+    assert seiten is not None
+    assert sum(seiten) / 4 == pytest.approx(KARTE_FELDER, rel=0.03)
+    assert kartengroesse_abweichung(grau, erk.ecken_bild) < 0.08
+    assert not any("Kartengröße" in h for h in erk.hinweise)
+
+
+def test_angeschnittene_karte_wird_nicht_gemessen():
+    bild = cv2.imread(str(TESTDATA / "nikolo_02.jpg"))  # oben angeschnitten
+    erk = erkenne(bild, GEO)
+    assert kartenseiten_felder(cv2.cvtColor(bild, cv2.COLOR_BGR2GRAY), erk.ecken_bild) is None
