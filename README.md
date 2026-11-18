@@ -39,11 +39,19 @@ abgelegt.
 | `linienbreite_mm` | 0.4 | Druckstärke der Linien |
 | `toleranz_mm` | 0.5 | so nah an der Berührungsgrenze → „prüfen“ |
 | `stabile_frames` | 8 | Ruhe-Frames bis zur Auto-Aufnahme |
+| `stabil_toleranz` | 0.01 | „ruhig“ = keine Rautenecke bewegt sich mehr als dieser Anteil der Diagonale |
+| `aufnahme_bilder` | 3 | so viele ruhige Bilder werden ausgewertet; die Mehrheit zählt, Abweichungen werden markiert |
+| `kamera_festhalten` | true | Fokus, Belichtung, Weißabgleich nach 3 s festhalten |
+| `kamera_fokus` | -1 | fester Fokuswert der Webcam, -1 = eingeregelten Wert übernehmen |
+| `nummer_min` / `nummer_max` | 1 / 250 | gültige Schützennummern |
 | `port` | 8765 | lokaler Port der Oberfläche |
 
 ## CSV
 
-UTF-8 mit BOM, Trennzeichen `;` (öffnet direkt in Excel). Eine Zeile pro Karte:
+UTF-8 mit BOM, Trennzeichen `;` (öffnet direkt in Excel). Ist die Datei gesperrt
+(in Excel geöffnet) oder das Ziel nicht erreichbar, landen Zeilen in
+`ausstehend.jsonl` neben `labinett.json` und werden automatisch nachgetragen.
+Eine vorhandene fremde CSV (andere Spalten) wird nie verändert. Eine Zeile pro Karte:
 
 ```
 zeitstempel;karten_uuid;schuetzennummer;nummer_quelle;s1_felder;s1_wert;…;s5_felder;s5_wert;gesamt;status;bemerkung
