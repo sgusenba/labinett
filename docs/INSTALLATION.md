@@ -64,7 +64,9 @@ Im Browser unten links **Einstellungen** aufklappen:
 |---|---|
 | **Kamera-Nr.** | Zeigt das Live-Bild die falsche Kamera (z. B. die eingebaute Laptop-Kamera), auf `1` oder `2` stellen. |
 | **CSV-Datei** | Speicherort der Ergebnisse, z. B. `C:\Users\<Name>\Desktop\nikolo-2026.csv`, oder über **CSV-Datei wählen …** im Windows-Dialog aussuchen. Ohne Pfad landet die Datei neben der `labinett.exe`. Eine vorhandene Datei, die nicht von labinett stammt, wird abgelehnt und nie verändert. |
-| **Schützennummer von / bis** | Gültiger Bereich, Standard 1–250. Andere Nummern lassen sich nicht speichern. |
+| **Schützennummer von / bis** | Gültiger Bereich, Standard 1–250. Andere Nummern lassen sich nicht speichern und werden auch nicht vorgeschlagen. |
+| **Schützennummer automatisch lesen** | Standard an. Aus, wenn die Vorschläge stören – dann wird immer eingetippt. |
+| **Nummern-Ausschnitte sammeln** | Standard an. Legt bestätigte Nummern als kleine Bilder im Ordner `nummern` neben der `labinett.exe` ab; damit lässt sich die Erkennung später verbessern. |
 | **Fokus/Belichtung festhalten** | Standard an: Nach 3 Sekunden hält labinett Fokus, Belichtung und Weißabgleich der Webcam fest, damit das Bild nicht ständig nachregelt. Ist das Bild danach unscharf, über **Kamera-Treiber …** den Fokus von Hand einstellen. |
 
 **Speichern** klicken. Kamera-Nummer und Auflösung wirken erst nach einem
@@ -84,7 +86,8 @@ Klappt das, ist die Installation fertig.
 ## Bedienung am Wettkampftag (Kurzfassung)
 
 1. Karte auflegen → wird automatisch aufgenommen.
-2. Schützennummer aus dem angezeigten Kreis eintippen.
+2. Schützennummer prüfen: sie wird aus dem Kreis gelesen und vorgeschlagen. Ist
+   sie unsicher, bleibt das Feld leer – dann aus dem angezeigten Kreis eintippen.
 3. Orange markierte Schüsse prüfen, ggf. Felder korrigieren (z. B. `16+12`,
    leer = außerhalb).
 4. **Enter** = speichern, **Esc** = verwerfen.

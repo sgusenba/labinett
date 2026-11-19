@@ -10,7 +10,8 @@ Läuft lokal unter Windows, Bedienung im Browser, Ergebnisse landen in einer CSV
 1. `labinett.exe` starten – der Browser öffnet sich mit der Oberfläche.
 2. Karte unter die Kamera legen (aufrecht, Feld 23 oben, **dunkle Unterlage**).
    Liegt sie ruhig, wird automatisch aufgenommen und ausgewertet.
-3. Schützennummer aus dem eingeblendeten Kreis eintippen, Werte prüfen,
+3. Schützennummer prüfen: sie wird aus dem Kreis gelesen und vorgeschlagen; ist sie
+   unsicher, bleibt das Feld leer und die Nummer wird eingetippt. Werte prüfen,
    **Enter** speichert (Esc verwirft). Felder pro Schuss lassen sich korrigieren,
    z. B. `16+12`; leer = außerhalb.
 4. Karte wegnehmen – die nächste kann kommen.
@@ -51,6 +52,8 @@ Diese Werte stehen fest in `labinett/scheibe.py` und sind nicht einstellbar.
 | `kamera_festhalten` | true | Fokus, Belichtung, Weißabgleich nach 3 s festhalten |
 | `kamera_fokus` | -1 | fester Fokuswert der Webcam, -1 = eingeregelten Wert übernehmen (Regler in der Oberfläche setzt ihn live) |
 | `nummer_min` / `nummer_max` | 1 / 250 | gültige Schützennummern |
+| `nummer_lesen` | true | handschriftliche Nummer automatisch lesen und vorschlagen |
+| `nummern_sammeln` | true | bestätigte Nummern-Ausschnitte in `nummern/` neben `labinett.json` ablegen (für späteres Nachtrainieren) |
 | `port` | 8765 | lokaler Port der Oberfläche |
 
 ## CSV
@@ -87,14 +90,19 @@ Die Windows-`.exe` baut GitHub Actions bei jedem Push auf `main`
 | `scheibe.py` | Feldmatrix, Geometrie, Wertung eines Schusses |
 | `karte.py` | Datenmodell Karte/Schuss, Status „prüfen“ |
 | `erkennung.py` | Raute finden, entzerren, Löcher finden, Nummern-Ausschnitt |
+| `nummer.py` + `modelle/ziffern.onnx` | Schützennummer lesen (Kreis, Ziffern trennen, kleines CNN über OpenCV-DNN) |
 | `kamera.py` | Webcam-Thread, Live-Erkennung, Auto-Aufnahme |
 | `app.py` + `static/` | Web-Oberfläche und API |
 | `csv_export.py` | CSV schreiben/lesen |
 
 ### Bekannte Grenzen
 
-- Die handschriftliche Schützennummer wird nicht automatisch gelesen
-  (Ausschnitt wird angezeigt, Nummer eintippen). Kommt mit den QR-Codes.
+- Die Schützennummer wird nur vorgeschlagen, wenn alle Ziffern sicher erkannt
+  sind und die Mehrheit der Aufnahmen übereinstimmt; sonst bleibt das Feld leer.
+  Getestet ist sie bisher nur an echten Karten mit der Nummer 1 und an
+  synthetischen mehrstelligen Nummern (`testdata/nummern/`). Die gesammelten
+  Ausschnitte (`nummern/`) eignen sich als echter Testsatz bzw. zum Nachtrainieren
+  (`tools/ziffern_trainieren.py`).
 - Die Karte muss aufrecht liegen; für eine gedrehte Kamera gibt es
   `"extra": {"drehung": 1..3}` (90°-Schritte).
 - Stark überlappende Löcher werden über die Fläche aufgeteilt; das Ziel von

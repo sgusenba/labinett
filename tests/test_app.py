@@ -152,6 +152,30 @@ def test_abstimmung_ueber_mehrere_bilder(tmp_path):
     assert e["karte"]["status"] == "pruefen"
 
 
+def test_nummer_vorschlag_und_sammeln(tmp_path):
+    c = client(tmp_path)
+    with open(TESTDATA / "nikolo_03.jpg", "rb") as f:
+        entwurf = c.post("/api/bild", files={"datei": ("k.jpg", f, "image/jpeg")}).json()
+    karte = entwurf["karte"]
+    # Vorschlag ist entweder die richtige 1 oder leer – nie etwas anderes
+    assert karte["schuetzennummer"] in ("1", None)
+    assert karte["nummer_quelle"] == ("auto" if karte["schuetzennummer"] else "fehlt")
+    r = c.post("/api/speichern", json={"schuetzennummer": "1"})
+    assert r.status_code == 200
+    gesammelt = list((tmp_path / "nummern").glob("1_*.png"))
+    assert len(gesammelt) == 1
+
+
+def test_nummer_lesen_abschaltbar(tmp_path):
+    e = Einstellungen(csv_pfad=str(tmp_path / "erg.csv"), browser_oeffnen=False, nummer_lesen=False, nummern_sammeln=False)
+    c = TestClient(erstelle_app(e, mit_kamera=False, config_pfad=tmp_path / "labinett.json"))
+    with open(TESTDATA / "nikolo_03.jpg", "rb") as f:
+        karte = c.post("/api/bild", files={"datei": ("k.jpg", f, "image/jpeg")}).json()["karte"]
+    assert karte["schuetzennummer"] is None
+    assert c.post("/api/speichern", json={"schuetzennummer": "1"}).status_code == 200
+    assert not (tmp_path / "nummern").exists()
+
+
 def test_fokus_endpunkt(tmp_path):
     c = client(tmp_path)
     assert c.post("/api/kamera/fokus", json={"wert": -5}).status_code == 400

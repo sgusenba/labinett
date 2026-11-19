@@ -3,7 +3,7 @@
 # werden beim ersten Start neben der .exe angelegt.
 a = Analysis(
     ["start.py"],
-    datas=[("labinett/static", "labinett/static")],
+    datas=[("labinett/static", "labinett/static"), ("labinett/modelle", "labinett/modelle")],
     hiddenimports=["uvicorn.logging", "uvicorn.loops.auto", "uvicorn.protocols.http.auto", "uvicorn.lifespan.on"],
 )
 pyz = PYZ(a.pure)

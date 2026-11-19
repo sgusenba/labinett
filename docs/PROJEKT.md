@@ -43,7 +43,7 @@ Testkarten zeigen mehrfach korrigierte Nebenrechnungen.
 | Erkennung | Raute finden und entzerren, Löcher finden, überlappende Löcher aufteilen |
 | Wertung | Feldzuordnung mit Anriss-Geometrie; Kartengröße, Feldgröße und Kaliber fest, Linienbreite und Unsicher-Toleranz einstellbar |
 | Kontrolle | erkannte Schüsse im Bild markiert, Grenzfälle orange, Felder pro Schuss korrigierbar |
-| Schützennummer | Ausschnitt des Nummernkreises wird angezeigt, Nummer wird eingetippt, gültig 1–250 |
+| Schützennummer | handschriftliche Nummer wird gelesen und vorgeschlagen (nur wenn sicher), Ausschnitt wird angezeigt, sonst eintippen; gültig 1–250 |
 | Ergebnisse | CSV (Excel-tauglich), Status `ok`/`pruefen`, Bemerkung, vorbereitete Spalte für Karten-UUID |
 | Betrieb | eine `labinett.exe`, Einstellungen in `labinett.json`, Oberfläche unter `http://127.0.0.1:8765/` |
 
@@ -51,7 +51,7 @@ Testkarten zeigen mehrfach korrigierte Nebenrechnungen.
 
 ```
 Karte auflegen ─► Auto-Aufnahme ─► Erkennung + Wertung ─► Kontrolle im Browser
-                                                          │ Nummer eintippen
+                                                          │ Nummer prüfen/eintippen
                                                           │ ggf. korrigieren
                                                           ▼
                        Karte wegnehmen ◄── Enter = Zeile in CSV
@@ -134,12 +134,12 @@ GitHub Actions testet jeden Stand und baut die `.exe`.
 
 1. Test mit der echten Webcam am Zielrechner, Erkennung ggf. nachjustieren
 2. Feldgröße (16,0 mm aus Fotos ermittelt) einmal mit dem Lineal an einer Originalkarte bestätigen
-3. Handschriftliche Schützennummer automatisch lesen (siehe unten)
+3. Schützennummer: Zuverlässigkeit an 30–50 echten Karten mit mehrstelligen Nummern messen (siehe unten)
 4. QR-Code mit Karten-UUID auf den Karten (Spalte `karten_uuid` ist vorbereitet)
 5. Auswertung der CSV: Rangliste, Export für Siegerehrung
 6. Optional: Kamera-Drehung automatisch erkennen
 
-### Geplant: Schützennummer automatisch lesen
+### Schützennummer automatisch lesen
 
 Die Nummer ist handgeschrieben, höchstens dreistellig, gültig sind 1–250.
 
@@ -156,6 +156,20 @@ Die Nummer ist handgeschrieben, höchstens dreistellig, gültig sind 1–250.
   werden kann.
 - Voraussetzung: 30–50 Karten mit gut lesbarer Nummer als Testsatz, sonst
   lässt sich die Zuverlässigkeit nicht messen.
+
+**Umgesetzt** (`labinett/nummer.py`) wie oben beschrieben, mit diesen Details:
+
+- Modell: kleines CNN, trainiert mit `tools/ziffern_trainieren.py` auf MNIST,
+  so verfremdet, dass es wie die Kamera-Ausschnitte aussieht, dazu synthetische
+  „1“ mit langem Aufstrich (so schreibt man hier, in MNIST selten) und eine
+  Klasse „keine einzelne Ziffer“ (zwei sich berührende Ziffern, Bruchstücke).
+  Damit werden zusammenhängende Ziffern über das Netz getrennt.
+- Ein Vorschlag erscheint nur, wenn jede Ziffer sicher ist und die Mehrheit der
+  3 Aufnahmen dieselbe Nummer liest; sonst bleibt das Feld leer, mit Hinweis.
+- Bestätigte Ausschnitte landen in `nummern/<nummer>_<zeit>_<auto|manuell>.png`.
+- Bisher geprüft: alle echten Testkarten (Nummer 1 bzw. leer) und 40 synthetische
+  mehrstellige Nummern (`testdata/nummern/`, aus `tools/nummern_testsatz.py`).
+  Der echte Testsatz mit mehrstelligen Nummern steht noch aus.
 
 ## Projektdaten
 
