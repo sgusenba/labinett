@@ -64,7 +64,7 @@ Im Browser unten links **Einstellungen** aufklappen:
 |---|---|
 | **Kamera-Nr.** | Zeigt das Live-Bild die falsche Kamera (z. B. die eingebaute Laptop-Kamera), auf `1` oder `2` stellen. |
 | **CSV-Datei** | Speicherort der Ergebnisse, z. B. `C:\Users\<Name>\Desktop\nikolo-2026.csv`, oder über **CSV-Datei wählen …** im Windows-Dialog aussuchen. Ohne Pfad landet die Datei neben der `labinett.exe`. Eine vorhandene Datei, die nicht von labinett stammt, wird abgelehnt und nie verändert. |
-| **Schützennummer erfassen** | Standard an. Aus: kein Nummernfeld, Karten werden ohne Nummer gespeichert (Spalte bleibt leer, `nummer_quelle` = `aus`). Wirkt sofort. |
+| **Schützennummer erfassen** | Standard aus: kein Nummernfeld, Karten werden ohne Nummer gespeichert (Spalte bleibt leer, `nummer_quelle` = `aus`). Einschalten, wenn die Nummer aus dem Kreis eingetippt werden soll. Wirkt sofort. |
 | **Schützennummer von / bis** | Gültiger Bereich, Standard 1–250. Andere Nummern lassen sich nicht speichern. |
 | **MJPG-Format** | Standard an. Viele USB-Webcams liefern Full HD unkomprimiert nur mit ~5 Bildern/s, mit MJPG 30 – die Auto-Aufnahme reagiert dann deutlich schneller. Die Bildrate steht oben rechts. Nur ausschalten, wenn die Kamera damit kein Bild liefert. |
 | **Fokus/Belichtung festhalten** | Standard an: Nach 3 Sekunden hält labinett Fokus, Belichtung und Weißabgleich der Webcam fest, damit das Bild nicht ständig nachregelt. Ist das Bild danach unscharf, über **Kamera-Treiber …** den Fokus von Hand einstellen. |
@@ -86,8 +86,8 @@ Klappt das, ist die Installation fertig.
 ## Bedienung am Wettkampftag (Kurzfassung)
 
 1. Karte auflegen → wird automatisch aufgenommen.
-2. Schützennummer aus dem angezeigten Kreis eintippen (entfällt, wenn
-   „Schützennummer erfassen“ aus ist).
+2. Nur wenn „Schützennummer erfassen“ an ist: Nummer aus dem angezeigten
+   Kreis eintippen.
 3. Orange markierte Schüsse prüfen, ggf. Felder korrigieren (z. B. `16+12`,
    leer = außerhalb).
 4. **Enter** = speichern, **Esc** = verwerfen.
