@@ -10,7 +10,8 @@ Läuft lokal unter Windows, Bedienung im Browser, Ergebnisse landen in einer CSV
 1. `labinett.exe` starten – der Browser öffnet sich mit der Oberfläche.
 2. Karte unter die Kamera legen (aufrecht, Feld 23 oben, **dunkle Unterlage**).
    Liegt sie ruhig, wird automatisch aufgenommen und ausgewertet.
-3. Schützennummer aus dem eingeblendeten Kreis eintippen, Werte prüfen,
+3. Schützennummer aus dem eingeblendeten Kreis eintippen (abschaltbar, siehe
+   `nummer_erfassen`), Werte prüfen,
    **Enter** speichert (Esc verwirft). Felder pro Schuss lassen sich korrigieren,
    z. B. `16+12`; leer = außerhalb.
 4. Karte wegnehmen – die nächste kann kommen.
@@ -48,8 +49,10 @@ Diese Werte stehen fest in `labinett/scheibe.py` und sind nicht einstellbar.
 | `stabile_frames` | 8 | Ruhe-Frames bis zur Auto-Aufnahme |
 | `stabil_toleranz` | 0.01 | „ruhig“ = keine Rautenecke bewegt sich mehr als dieser Anteil der Diagonale |
 | `aufnahme_bilder` | 3 | so viele ruhige Bilder werden ausgewertet; die Mehrheit zählt, Abweichungen werden markiert |
+| `kamera_mjpg` | true | Webcam im MJPG-Format öffnen (Full HD mit 30 statt oft nur 5 Bildern/s) |
 | `kamera_festhalten` | true | Fokus, Belichtung, Weißabgleich nach 3 s festhalten |
 | `kamera_fokus` | -1 | fester Fokuswert der Webcam, -1 = eingeregelten Wert übernehmen (Regler in der Oberfläche setzt ihn live) |
+| `nummer_erfassen` | true | Schützennummer abfragen; `false` = ohne Nummer speichern, kein „prüfen“ wegen fehlender Nummer |
 | `nummer_min` / `nummer_max` | 1 / 250 | gültige Schützennummern |
 | `port` | 8765 | lokaler Port der Oberfläche |
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import time
 from collections import Counter
 from dataclasses import asdict
@@ -66,6 +67,27 @@ def abstimmen(
     return bild, erk, karte, anzahl
 
 
+def _erkenne_alle(
+    bilder: list[np.ndarray], geo, drehung: int
+) -> tuple[list[tuple[np.ndarray, Erkennung]], ErkennungsFehler | None]:
+    """Erkennung je Bild, parallel (OpenCV gibt den GIL frei). Reihenfolge bleibt erhalten."""
+
+    def eins(bild: np.ndarray) -> Erkennung | ErkennungsFehler:
+        try:
+            return erkenne(bild, geo, drehung=drehung)
+        except ErkennungsFehler as e:
+            return e
+
+    if len(bilder) == 1:
+        erg = [eins(bilder[0])]
+    else:
+        with ThreadPoolExecutor(max_workers=min(4, len(bilder))) as pool:
+            erg = list(pool.map(eins, bilder))
+    ok = [(b, e) for b, e in zip(bilder, erg) if isinstance(e, Erkennung)]
+    fehler = next((e for e in erg if isinstance(e, ErkennungsFehler)), None)
+    return ok, fehler
+
+
 class Zustand:
     def __init__(self, einst: config.Einstellungen, warteschlange: Path) -> None:
         self.einst = einst
@@ -82,14 +104,10 @@ class Zustand:
             bilder = [bilder]
         geo = self.einst.geometrie
         drehung = int(self.einst.extra.get("drehung", 0))
-        ergebnisse, fehler = [], None
-        for bild in bilder:
-            try:
-                erk = erkenne(bild, geo, drehung=drehung)
-            except ErkennungsFehler as e:
-                fehler = e
-                continue
-            ergebnisse.append((bild, erk, werte_aus(erk.positionen, geo, geteilt=erk.geteilt)))
+        erkannt, fehler = _erkenne_alle(bilder, geo, drehung)
+        ergebnisse = [
+            (bild, erk, werte_aus(erk.positionen, geo, geteilt=erk.geteilt)) for bild, erk in erkannt
+        ]
         if not ergebnisse:
             raise HTTPException(422, str(fehler or "Kein Bild"))
         bild, erk, karte, einig = abstimmen(ergebnisse)
@@ -98,15 +116,22 @@ class Zustand:
             hinweise.append(
                 f"nur {einig} von {len(bilder)} Aufnahmen stimmen überein – abweichende Schüsse markiert"
             )
-        ausschnitt = nummern_ausschnitt(bild, erk.ecken_bild)
-        nummer = erkenne_nummer(ausschnitt)
-        karte.schuetzennummer = nummer
-        karte.nummer_quelle = "auto" if nummer else "fehlt"
+        nummer_bild = None
+        if self.einst.nummer_erfassen:
+            ausschnitt = nummern_ausschnitt(bild, erk.ecken_bild)
+            nummer = erkenne_nummer(ausschnitt)
+            karte.schuetzennummer = nummer
+            karte.nummer_quelle = "auto" if nummer else "fehlt"
+            nummer_bild = _b64_jpeg(ausschnitt)
+        else:
+            karte.nummer_pflicht = False
+            karte.nummer_quelle = "aus"
         entwurf = {
             "quelle": quelle,
             "karte": karte.als_dict(),
             "bild": _b64_jpeg(_markiere(erk.normbild, karte)),
-            "nummer_bild": _b64_jpeg(ausschnitt),
+            "nummer_bild": nummer_bild,
+            "nummer_erfassen": self.einst.nummer_erfassen,
             "hinweise": hinweise,
         }
         with self.lock:
@@ -116,7 +141,7 @@ class Zustand:
 
 
 class SpeichernAnfrage(BaseModel):
-    schuetzennummer: str
+    schuetzennummer: str = ""  # darf leer bleiben, wenn die Nummernerfassung aus ist
     felder: list[str] | None = None  # optional korrigiert, je Schuss z. B. "16+12"
     bemerkung: str = ""
 
@@ -206,6 +231,7 @@ def erstelle_app(
             toleranz_rel=einst.stabil_toleranz,
             sperren=einst.kamera_festhalten,
             fokus=einst.kamera_fokus,
+            mjpg=einst.kamera_mjpg,
         )
 
         @app.on_event("startup")
@@ -304,13 +330,14 @@ def erstelle_app(
             if karte is None:
                 raise HTTPException(409, "Keine Karte zum Speichern")
             nummer = anfrage.schuetzennummer.strip()
-            if not nummer:
+            if not nummer and karte.nummer_pflicht:
                 raise HTTPException(400, "Schützennummer fehlt")
-            if not nummer.isdigit() or not einst.nummer_min <= int(nummer) <= einst.nummer_max:
-                raise HTTPException(
-                    400, f"Schützennummer muss zwischen {einst.nummer_min} und {einst.nummer_max} liegen"
-                )
-            nummer = str(int(nummer))  # führende Nullen weg
+            if nummer:
+                if not nummer.isdigit() or not einst.nummer_min <= int(nummer) <= einst.nummer_max:
+                    raise HTTPException(
+                        400, f"Schützennummer muss zwischen {einst.nummer_min} und {einst.nummer_max} liegen"
+                    )
+                nummer = str(int(nummer))  # führende Nullen weg
             korrigiert = False
             if anfrage.felder is not None:
                 neue = []
@@ -332,7 +359,7 @@ def erstelle_app(
             else:
                 for s in karte.schuesse:
                     s.unsicher = False  # Bediener hat Entwurf bestätigt
-            if karte.schuetzennummer != nummer:
+            if nummer and karte.schuetzennummer != nummer:
                 karte.schuetzennummer = nummer
                 karte.nummer_quelle = "manuell"
             teile = [anfrage.bemerkung.strip()]
