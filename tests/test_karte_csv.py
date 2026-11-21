@@ -101,3 +101,13 @@ def test_pruefe_ziel_eigene_und_neue_datei(tmp_path):
     ce.pruefe_ziel(eigene)
     with pytest.raises(ce.FremdeDatei):
         ce.pruefe_ziel(tmp_path)
+
+
+def test_ohne_nummernpflicht_kein_pruefgrund():
+    from labinett.karte import werte_aus
+    from labinett.scheibe import Geometrie
+
+    k = werte_aus([(0.5, 0.5)] * 5, Geometrie(linienbreite_mm=0.4, toleranz_mm=0.5))
+    assert any("Schützennummer" in g for g in k.gruende_pruefen)
+    k.nummer_pflicht = False
+    assert not any("Schützennummer" in g for g in k.gruende_pruefen)
