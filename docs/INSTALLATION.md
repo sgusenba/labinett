@@ -118,9 +118,14 @@ freigibt. Für einen Zwischenstand trotzdem besser eine Kopie öffnen.
 
 ## Update auf eine neue Version
 
-1. Programm beenden.
-2. Neue `labinett.exe` herunterladen (Schritt 1) und die alte in `C:\labinett`
-   ersetzen. `labinett.json` und die CSV bleiben erhalten.
+labinett aktualisiert sich selbst: Bei jedem Start sucht es im Hintergrund
+nach einer neuen Version und lädt sie herunter (oben rechts steht dann
+„Update … bereit“). Beim **nächsten** Start wird sie eingespielt.
+Ohne Internet startet das Programm ganz normal. `labinett.json` und die CSV
+bleiben erhalten. Details und Abschalten: [UPDATE.md](UPDATE.md).
+
+Von Hand: Programm beenden, neue `labinett.exe` herunterladen (Schritt 1) und
+die alte in `C:\labinett` ersetzen.
 
 ## Optional: Verknüpfung auf dem Desktop
 

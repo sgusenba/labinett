@@ -7,3 +7,4 @@ dist/
 .venv/
 labinett.json
 ergebnisse.csv
+labinett/_version.py

@@ -50,6 +50,8 @@ class Einstellungen:
     nummer_lesen: bool = True
     # Bestätigte Nummern-Ausschnitte in „nummern/“ ablegen, um das Modell nachzutrainieren
     nummern_sammeln: bool = True
+    # Beim Start im Hintergrund nach einer neuen Version suchen und sie laden
+    auto_update: bool = True
     extra: dict = field(default_factory=dict)
 
     @property

@@ -3,7 +3,7 @@
 Auswertung der **Nikolo-Glücksscheibe** (Schützenverein Bad Zell) per USB-Webcam.
 Läuft lokal unter Windows, Bedienung im Browser, Ergebnisse landen in einer CSV-Datei.
 
-**Projektbeschreibung:** [docs/PROJEKT.md](docs/PROJEKT.md) · **Installation unter Windows:** [docs/INSTALLATION.md](docs/INSTALLATION.md)
+**Projektbeschreibung:** [docs/PROJEKT.md](docs/PROJEKT.md) · **Installation unter Windows:** [docs/INSTALLATION.md](docs/INSTALLATION.md) · **Auto-Update & Versionen:** [docs/UPDATE.md](docs/UPDATE.md)
 
 ## So funktioniert's
 
@@ -57,6 +57,7 @@ Diese Werte stehen fest in `labinett/scheibe.py` und sind nicht einstellbar.
 | `nummer_min` / `nummer_max` | 1 / 250 | gültige Schützennummern |
 | `nummer_lesen` | true | bei `nummer_erfassen`: handschriftliche Nummer automatisch lesen und vorschlagen |
 | `nummern_sammeln` | true | bei `nummer_erfassen`: bestätigte Nummern-Ausschnitte in `nummern/` neben `labinett.json` ablegen (für späteres Nachtrainieren) |
+| `auto_update` | true | beim Start im Hintergrund nach neuer Version suchen und laden, eingespielt beim nächsten Start ([docs/UPDATE.md](docs/UPDATE.md)) |
 | `port` | 8765 | lokaler Port der Oberfläche |
 
 ## CSV

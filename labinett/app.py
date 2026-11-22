@@ -16,7 +16,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-from . import __version__, config, csv_export
+from . import __version__, config, csv_export, update
 from .erkennung import PX, RAND, Erkennung, ErkennungsFehler, erkenne, nummern_ausschnitt
 from .karte import Karte, Schuss, werte_aus
 from . import nummer as nummer_lesen
@@ -237,6 +237,7 @@ def erstelle_app(
     zustand = Zustand(einst, ordner / "ausstehend.jsonl")
     app = FastAPI(title="labinett", version=__version__)
     app.state.zustand = zustand
+    app.state.update = update.UpdateStatus()
 
     kamera: Kamera | None = None
 
@@ -317,6 +318,7 @@ def erstelle_app(
             "csv": str(einst.csv_datei()),
             "csv_ausstehend": offen,
             "csv_fehler": csv_fehler,
+            "update": app.state.update.als_dict(),
         }
 
     @app.post("/api/aufnehmen")
