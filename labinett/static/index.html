@@ -227,7 +227,10 @@ async function poll() {
   try {
     const s = await api('/api/status');
     const k = s.kamera;
-    $('kopfstatus').textContent = `v${s.version} · Kamera ${k.kamera_ok ? 'bereit' + (k.fps ? ` (${Math.round(k.fps)} Bilder/s)` : '') : 'nicht verfügbar'}`;
+    const u = s.update || {};
+    const upd = u.zustand === 'bereit' ? ` · Update ${u.version} bereit – wird beim nächsten Start installiert`
+      : u.zustand === 'laedt' ? ` · lade Update ${u.version} …` : '';
+    $('kopfstatus').textContent = `v${s.version} · Kamera ${k.kamera_ok ? 'bereit' + (k.fps ? ` (${Math.round(k.fps)} Bilder/s)` : '') : 'nicht verfügbar'}${upd}`;
     const offen = s.csv_ausstehend ? ` · ${s.csv_ausstehend} Ergebnis(se) warten – Datei in Excel geöffnet?` : '';
     $('csvpfad').textContent = 'CSV: ' + s.csv + offen + (s.csv_fehler ? ' · ' + s.csv_fehler : '');
     $('csvpfad').className = offen || s.csv_fehler ? 'fehler' : 'hinweis';
@@ -267,6 +270,7 @@ const EINST = [
   ['stabile_frames', 'Ruhe-Frames bis Aufnahme'], ['stabil_toleranz', 'Ruhe-Toleranz (Anteil der Raute)'],
   ['aufnahme_bilder', 'Bilder je Aufnahme (Abstimmung)'],
   ['linienbreite_mm', 'Linienbreite (mm)'], ['toleranz_mm', 'Unsicher-Toleranz (mm)'],
+  ['auto_update', 'Beim Start nach Updates suchen', 'ja'],
 ];
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
 async function ladeEinstellungen() {

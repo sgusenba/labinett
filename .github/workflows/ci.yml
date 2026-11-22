@@ -1,11 +1,21 @@
 name: CI
 
+# Jeder Push auf main ergibt ein Release v<MAJOR>.<MINOR>.<BUILD>:
+#   MAJOR.MINOR steht in der Datei VERSION (von Hand ändern für größere Sprünge),
+#   BUILD wird automatisch hochgezählt (höchster vorhandener Tag mit gleichem
+#   MAJOR.MINOR + 1, bei neuem MAJOR.MINOR wieder ab 1).
+# Die gebaute labinett.exe kennt ihre Version und sucht beim Start nach neueren Releases.
+
 on:
   push:
     branches: [main]
-    tags: ["v*"]
   pull_request:
   workflow_dispatch:
+
+# Nie zwei Release-Läufe gleichzeitig – sonst würden beide dieselbe Nummer vergeben
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || 'release' }}
+  cancel-in-progress: false
 
 jobs:
   test:
@@ -23,21 +33,61 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: write
+    env:
+      RELEASE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # alle Tags, um die nächste Build-Nummer zu finden
+
+      - name: Version bestimmen
+        id: version
+        shell: bash
+        run: |
+          basis=$(tr -d ' \r\n' < VERSION)
+          [[ "$basis" =~ ^[0-9]+\.[0-9]+$ ]] || { echo "VERSION muss MAJOR.MINOR sein, ist '$basis'"; exit 1; }
+          git fetch --tags --force
+          letzter=$(git tag -l "v${basis}.*" | sed "s/^v${basis}\.//" | grep -E '^[0-9]+$' | sort -n | tail -1)
+          build=$(( ${letzter:-0} + 1 ))
+          if [ "$RELEASE" = "true" ]; then
+            version="${basis}.${build}"
+          else
+            version="${basis}.${build}.dev${{ github.run_number }}"  # PR-/Testbuild: kein Auto-Update
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "__version__ = \"$version\"" > labinett/_version.py
+          echo "Version: $version"
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install -r requirements-dev.txt
       - run: pytest -q
       - run: pyinstaller --noconfirm labinett.spec
+
+      - name: Prüfsumme
+        shell: bash
+        run: |
+          cd dist
+          sha256sum labinett.exe | cut -d' ' -f1 > labinett.exe.sha256
+          cat labinett.exe.sha256
+
       - uses: actions/upload-artifact@v4
         with:
-          name: labinett-windows
-          path: dist/labinett.exe
-      - name: Release mit .exe (nur bei Versions-Tag v*)
-        if: startsWith(github.ref, 'refs/tags/v')
+          name: labinett-windows-${{ steps.version.outputs.version }}
+          path: |
+            dist/labinett.exe
+            dist/labinett.exe.sha256
+
+      - name: Release v${{ steps.version.outputs.version }}
+        if: env.RELEASE == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/labinett.exe
+          tag_name: v${{ steps.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: labinett ${{ steps.version.outputs.version }}
+          files: |
+            dist/labinett.exe
+            dist/labinett.exe.sha256
           generate_release_notes: true
+          make_latest: true

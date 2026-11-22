@@ -13,12 +13,13 @@ import webbrowser  # noqa: E402
 
 import uvicorn  # noqa: E402
 
-from . import config  # noqa: E402
+from . import __version__, config, update  # noqa: E402
 from .app import erstelle_app  # noqa: E402
 
 
 def main() -> None:
     einst = config.laden()
+    update.beim_start(einst.auto_update)  # bereitliegendes Update einspielen (ohne Netz)
     app = erstelle_app(einst)
     url = f"http://127.0.0.1:{einst.port}/"
     with socket.socket() as s:
@@ -26,7 +27,9 @@ def main() -> None:
             print(f"Port {einst.port} ist belegt – läuft labinett schon? Öffne {url}")
             webbrowser.open(url)
             sys.exit(1)
-    print(f"labinett läuft auf {url}  (Beenden mit Strg+C)")
+    if einst.auto_update:
+        update.hintergrund_starten(__version__, app.state.update)
+    print(f"labinett {__version__} läuft auf {url}  (Beenden mit Strg+C)")
     print(f"CSV: {einst.csv_datei()}")
     if einst.browser_oeffnen:
         threading.Timer(1.5, lambda: webbrowser.open(url)).start()
