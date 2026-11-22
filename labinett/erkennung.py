@@ -378,10 +378,8 @@ def nummern_ausschnitt(bild_bgr: np.ndarray, ecken: np.ndarray) -> np.ndarray:
     return cv2.warpPerspective(bild_bgr, A @ Hm, (NUMMER_PX, NUMMER_PX), borderValue=(40, 40, 40))
 
 
-def erkenne_nummer(ausschnitt_bgr: np.ndarray) -> str | None:
-    """Platzhalter: handschriftliche Ziffern werden (noch) nicht gelesen.
+def erkenne_nummer(ausschnitt_bgr: np.ndarray, nummer_min: int = 1, nummer_max: int = 250) -> str | None:
+    """Handschriftliche Schützennummer lesen (``None``, wenn nicht sicher, siehe ``nummer.py``)."""
+    from .nummer import lies_nummer
 
-    Ein einfacher Ziffern-Klassifikator war auf den Testkarten unzuverlässig.
-    Bis QR-Codes kommen, wird die Nummer in der Oberfläche eingegeben.
-    """
-    return None
+    return lies_nummer(ausschnitt_bgr, nummer_min, nummer_max).nummer

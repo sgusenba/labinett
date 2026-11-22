@@ -17,8 +17,9 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from . import __version__, config, csv_export
-from .erkennung import PX, RAND, Erkennung, ErkennungsFehler, erkenne, erkenne_nummer, nummern_ausschnitt
+from .erkennung import PX, RAND, Erkennung, ErkennungsFehler, erkenne, nummern_ausschnitt
 from .karte import Karte, Schuss, werte_aus
+from . import nummer as nummer_lesen
 from .kamera import Kamera
 from .scheibe import POSITION
 
@@ -95,6 +96,7 @@ class Zustand:
         self.lock = threading.Lock()
         self.entwurf: dict | None = None
         self.entwurf_karte: Karte | None = None
+        self.entwurf_ausschnitt: np.ndarray | None = None
         self.letzte_meldung = ""
         self.letzter_nachtrag = 0.0
 
@@ -116,13 +118,25 @@ class Zustand:
             hinweise.append(
                 f"nur {einig} von {len(bilder)} Aufnahmen stimmen überein – abweichende Schüsse markiert"
             )
+        ausschnitt = None
         nummer_bild = None
         if self.einst.nummer_erfassen:
             ausschnitt = nummern_ausschnitt(bild, erk.ecken_bild)
-            nummer = erkenne_nummer(ausschnitt)
-            karte.schuetzennummer = nummer
-            karte.nummer_quelle = "auto" if nummer else "fehlt"
             nummer_bild = _b64_jpeg(ausschnitt)
+            lesung = nummer_lesen.Lesung(None, [])
+            if self.einst.nummer_lesen:
+                lesung = nummer_lesen.abstimmen(
+                    [
+                        nummer_lesen.lies_nummer(
+                            nummern_ausschnitt(b, e.ecken_bild), self.einst.nummer_min, self.einst.nummer_max
+                        )
+                        for b, e, _ in ergebnisse
+                    ]
+                )
+            karte.schuetzennummer = lesung.nummer
+            karte.nummer_quelle = "auto" if lesung.nummer else "fehlt"
+            if lesung.nummer is None and lesung.ziffern:
+                hinweise.append(f"Nummer nicht sicher gelesen ({lesung.grund}) – bitte eintippen")
         else:
             karte.nummer_pflicht = False
             karte.nummer_quelle = "aus"
@@ -137,6 +151,7 @@ class Zustand:
         with self.lock:
             self.entwurf = entwurf
             self.entwurf_karte = karte
+            self.entwurf_ausschnitt = ausschnitt
         return entwurf
 
 
@@ -181,6 +196,20 @@ def _speichern_unter_dialog(aktuell: Path) -> str | None:
     t.start()
     t.join(timeout=300)
     return erg[0]
+
+
+def _sammle_nummer(ordner: Path, ausschnitt: np.ndarray, karte: Karte) -> None:
+    """Bestätigten Nummern-Ausschnitt ablegen: <nummer>_<zeit>_<auto|manuell>.png.
+
+    Daraus lässt sich später ein Testsatz bzw. Nachtraining mit echter Handschrift bauen.
+    Fehler hier dürfen das Speichern nie verhindern.
+    """
+    try:
+        ordner.mkdir(parents=True, exist_ok=True)
+        zeit = karte.zeitstempel.strftime("%Y%m%d_%H%M%S")
+        cv2.imwrite(str(ordner / f"{karte.schuetzennummer}_{zeit}_{karte.nummer_quelle}.png"), ausschnitt)
+    except (OSError, cv2.error):
+        pass
 
 
 def _parse_felder(text: str) -> tuple[int, ...]:
@@ -373,6 +402,8 @@ def erstelle_app(
             ergebnis = karte.als_dict()
             ergebnis["csv_gespeichert"] = in_csv
             ergebnis["csv_ausstehend"] = csv_export.ausstehend(zustand.warteschlange)
+            if einst.nummern_sammeln and zustand.entwurf_ausschnitt is not None and karte.schuetzennummer:
+                _sammle_nummer(ordner / "nummern", zustand.entwurf_ausschnitt, karte)
             zustand.entwurf = None
             zustand.entwurf_karte = None
         return ergebnis

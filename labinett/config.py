@@ -46,6 +46,10 @@ class Einstellungen:
     # Gültige Schützennummern
     nummer_min: int = 1
     nummer_max: int = 250
+    # Handschriftliche Nummer automatisch lesen (Vorschlag, Bediener bestätigt mit Enter)
+    nummer_lesen: bool = True
+    # Bestätigte Nummern-Ausschnitte in „nummern/“ ablegen, um das Modell nachzutrainieren
+    nummern_sammeln: bool = True
     extra: dict = field(default_factory=dict)
 
     @property
