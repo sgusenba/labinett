@@ -47,11 +47,13 @@ class Schuss:
 @dataclass
 class Karte:
     schuetzennummer: str | None
-    nummer_quelle: str  # "auto" | "manuell" | "fehlt"
+    nummer_quelle: str  # "auto" | "manuell" | "fehlt" | "aus" (Erfassung abgeschaltet)
     schuesse: list[Schuss]
     zeitstempel: datetime = field(default_factory=lambda: datetime.now().replace(microsecond=0))
     karten_uuid: str | None = None  # kommt später per QR
     bemerkung: str = ""
+    # False: Schützennummer wird nicht erfasst, eine fehlende Nummer ist kein Prüfgrund
+    nummer_pflicht: bool = True
 
     @property
     def gesamt(self) -> int:
@@ -65,7 +67,7 @@ class Karte:
         unsicher = [str(s.nr) for s in self.schuesse if s.unsicher]
         if unsicher:
             gruende.append("unsicher: Schuss " + ", ".join(unsicher))
-        if not self.schuetzennummer:
+        if self.nummer_pflicht and not self.schuetzennummer:
             gruende.append("Schützennummer fehlt")
         return gruende
 

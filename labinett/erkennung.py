@@ -80,13 +80,14 @@ def _finde_gitter_maske(grau: np.ndarray) -> np.ndarray:
             if hh[3] >= 0 and zell_min < cv2.contourArea(k) < zell_max
         )
         if zellen > beste_zellen:
-            beste_zellen = zellen
-            voll = np.zeros_like(th)
-            voll[lab == idx] = 255
-            beste = voll
+            beste_zellen, beste = zellen, idx
     if beste is None or beste_zellen < 12:
         raise ErkennungsFehler("Kein Raster gefunden – liegt die Karte vollständig im Bild?")
-    return beste
+    # Maske nur einmal und nur im Bereich der Komponente bauen
+    x, y, w, h, _ = st[beste]
+    voll = np.zeros_like(th)
+    voll[y : y + h, x : x + w][lab[y : y + h, x : x + w] == beste] = 255
+    return voll
 
 
 def _ecken(maske: np.ndarray, drehung: int) -> np.ndarray:

@@ -53,6 +53,7 @@ class Kamera:
         toleranz_rel: float = 0.01,
         sperren: bool = True,
         fokus: int = -1,
+        mjpg: bool = True,
     ) -> None:
         self.index = index
         self.breite = breite
@@ -63,7 +64,9 @@ class Kamera:
         self.toleranz_rel = toleranz_rel
         self.sperren = sperren
         self.fokus = fokus
+        self.mjpg = mjpg
         self.auto_aktiv = True
+        self.fps: float | None = None  # gemessene Bilder pro Sekunde
 
         self._lock = threading.Lock()
         self._frame: np.ndarray | None = None
@@ -129,6 +132,7 @@ class Kamera:
                 "festgehalten": dict(self.festgehalten),
                 "fokus": self.fokus_aktuell,
                 "autofokus": self.autofokus,
+                "fps": None if self.fps is None else round(self.fps, 1),
             }
 
     def vorschau_jpeg(self) -> bytes | None:
@@ -154,8 +158,17 @@ class Kamera:
     def _oeffnen(self) -> cv2.VideoCapture:
         api = cv2.CAP_DSHOW if sys.platform.startswith("win") else cv2.CAP_ANY
         cap = cv2.VideoCapture(self.index, api)
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.breite)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.hoehe)
+        try:
+            # MJPG vor der Auflösung setzen: unkomprimiert schaffen USB-2-Webcams
+            # bei 1920 × 1080 oft nur 5 Bilder/s, mit MJPG 30.
+            if self.mjpg:
+                cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.breite)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.hoehe)
+            cap.set(cv2.CAP_PROP_FPS, 30)
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # kein Rückstau alter Bilder
+        except cv2.error:
+            pass
         return cap
 
     def _festhalten(self, cap: cv2.VideoCapture) -> None:
@@ -215,6 +228,7 @@ class Kamera:
         start = time.monotonic()
         festgehalten = not self.sperren
         n = 0
+        letzt_t: float | None = None
         while self._laeuft:
             if not cap.isOpened():
                 self.fehler = f"Kamera {self.index} lässt sich nicht öffnen"
@@ -245,6 +259,11 @@ class Kamera:
                 time.sleep(0.5)
                 continue
             self.fehler = None
+            jetzt = time.monotonic()
+            if letzt_t is not None and jetzt > letzt_t:
+                f = 1.0 / (jetzt - letzt_t)
+                self.fps = f if self.fps is None else self.fps + 0.1 * (f - self.fps)
+            letzt_t = jetzt
             if not festgehalten and time.monotonic() - start >= self.EINLAUF_S:
                 try:
                     self._festhalten(cap)

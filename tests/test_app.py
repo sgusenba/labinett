@@ -9,7 +9,8 @@ TESTDATA = Path(__file__).resolve().parent.parent / "testdata"
 
 
 def client(tmp_path):
-    e = Einstellungen(csv_pfad=str(tmp_path / "erg.csv"), browser_oeffnen=False)
+    # Nummernerfassung ist standardmäßig aus; die meisten Tests prüfen sie mit
+    e = Einstellungen(csv_pfad=str(tmp_path / "erg.csv"), browser_oeffnen=False, nummer_erfassen=True)
     return TestClient(erstelle_app(e, mit_kamera=False, config_pfad=tmp_path / "labinett.json"))
 
 
@@ -208,3 +209,27 @@ def test_fokus_endpunkt_mit_kamera(tmp_path, monkeypatch):
     assert c.post("/api/kamera/fokus", json={"wert": -1}).status_code == 200
     assert gesetzt == [80, -1]
     assert config.laden(tmp_path / "labinett.json").kamera_fokus == -1
+
+
+def test_ohne_schuetzennummer(tmp_path):
+    e = Einstellungen(csv_pfad=str(tmp_path / "erg.csv"), browser_oeffnen=False)  # Standard: aus
+    c = TestClient(erstelle_app(e, mit_kamera=False, config_pfad=tmp_path / "labinett.json"))
+    with open(TESTDATA / "nikolo_04.jpg", "rb") as f:
+        entwurf = c.post("/api/bild", files={"datei": ("x.jpg", f, "image/jpeg")}).json()
+    assert entwurf["nummer_erfassen"] is False and entwurf["nummer_bild"] is None
+    assert entwurf["karte"]["status"] == "ok"  # fehlende Nummer ist kein Prüfgrund
+    r = c.post("/api/speichern", json={})
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "ok" and r.json()["nummer_quelle"] == "aus"
+    zeile = c.get("/api/ergebnisse").json()[0]
+    assert zeile["schuetzennummer"] == "" and zeile["gesamt"] == "147"
+
+
+def test_nummernerfassung_live_abschalten(tmp_path):
+    c = client(tmp_path)
+    assert c.post("/api/einstellungen", json={"nummer_erfassen": False}).status_code == 200
+    with open(TESTDATA / "nikolo_01.jpg", "rb") as f:
+        c.post("/api/bild", files={"datei": ("x.jpg", f, "image/jpeg")})
+    # Nummer darf trotzdem angegeben werden, wird dann geprüft
+    assert c.post("/api/speichern", json={"schuetzennummer": "999"}).status_code == 400
+    assert c.post("/api/speichern", json={"schuetzennummer": "8"}).json()["schuetzennummer"] == "8"

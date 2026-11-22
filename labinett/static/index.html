@@ -114,14 +114,15 @@ function zeigeEntwurf(e) {
     <tr class="unsicher"><td>${k.schuesse.length + i + 1}</td>
     <td><input data-nr="${k.schuesse.length + i + 1}" value="" placeholder="nicht erkannt"></td><td></td><td class="wert">0</td></tr>`).join('');
   const gruende = (k.gruende_pruefen || []).filter((g) => !g.startsWith('Schützennummer'));
+  const mitNummer = e.nummer_erfassen !== false;
   $('inhalt').className = '';
   $('inhalt').innerHTML = `
-    <div class="entwurf">
+    <div class="entwurf" ${mitNummer ? '' : 'style="grid-template-columns:1fr"'}>
       <img class="haupt" src="${e.bild}" alt="Erkannte Schüsse">
-      <div class="nummer">
-        <img src="${e.nummer_bild}" alt="Schützennummer">
+      ${mitNummer ? `<div class="nummer">
+        ${e.nummer_bild ? `<img src="${e.nummer_bild}" alt="Schützennummer">` : ''}
         <input id="nummer" value="${k.schuetzennummer || ''}" placeholder="Nr." inputmode="numeric" maxlength="3" autocomplete="off">
-      </div>
+      </div>` : ''}
     </div>
     <table>
       <thead><tr><th>#</th><th>Felder</th><th>Anriss</th><th>Wert</th></tr></thead>
@@ -139,7 +140,7 @@ function zeigeEntwurf(e) {
   document.querySelectorAll('#schuesse input').forEach((i) => i.addEventListener('input', neuSumme));
   $('btnSpeichern').onclick = speichern;
   $('btnVerwerfen').onclick = verwerfen;
-  $('nummer').focus();
+  ($('nummer') || $('btnSpeichern')).focus();
 }
 
 function feldwerte(text) {
@@ -161,7 +162,7 @@ async function speichern() {
   try {
     const r = await api('/api/speichern', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({schuetzennummer: $('nummer').value, felder, bemerkung: $('bemerkung').value}),
+      body: JSON.stringify({schuetzennummer: $('nummer') ? $('nummer').value : '', felder, bemerkung: $('bemerkung').value}),
     });
     leeren();
     if (!r.csv_gespeichert) {
@@ -169,7 +170,7 @@ async function speichern() {
         `Ergebnis ist vorgemerkt (${r.csv_ausstehend} offen) und wird automatisch nachgetragen, sobald die Datei frei ist.</span>`;
     }
     ladeErgebnisse();
-  } catch (err) { $('meldung').textContent = err.message; $('nummer').focus(); $('nummer').select(); }
+  } catch (err) { $('meldung').textContent = err.message; if ($('nummer')) { $('nummer').focus(); $('nummer').select(); } }
 }
 
 async function verwerfen() {
@@ -226,7 +227,7 @@ async function poll() {
   try {
     const s = await api('/api/status');
     const k = s.kamera;
-    $('kopfstatus').textContent = `v${s.version} · Kamera ${k.kamera_ok ? 'bereit' : 'nicht verfügbar'}`;
+    $('kopfstatus').textContent = `v${s.version} · Kamera ${k.kamera_ok ? 'bereit' + (k.fps ? ` (${Math.round(k.fps)} Bilder/s)` : '') : 'nicht verfügbar'}`;
     const offen = s.csv_ausstehend ? ` · ${s.csv_ausstehend} Ergebnis(se) warten – Datei in Excel geöffnet?` : '';
     $('csvpfad').textContent = 'CSV: ' + s.csv + offen + (s.csv_fehler ? ' · ' + s.csv_fehler : '');
     $('csvpfad').className = offen || s.csv_fehler ? 'fehler' : 'hinweis';
@@ -243,23 +244,25 @@ async function poll() {
       zeigeEntwurf(s.entwurf);
     }
   } catch (_) { $('kopfstatus').textContent = 'Verbindung zum Programm verloren'; }
-  setTimeout(poll, 700);
+  setTimeout(poll, 250);  // kurz halten: neue Auswertung erscheint sonst spürbar verzögert
 }
 
 async function ladeErgebnisse() {
   const rows = await api('/api/ergebnisse');
   $('ergebnisse').querySelector('tbody').innerHTML = rows.map((r) => `
-    <tr><td>${r.zeitstempel.slice(11, 19)}</td><td>${r.schuetzennummer}</td>
+    <tr><td>${r.zeitstempel.slice(11, 19)}</td><td>${r.schuetzennummer || '–'}</td>
     <td>${[1,2,3,4,5].map((n) => r['s' + n + '_wert'] || '–').join(' · ')}</td>
     <td><b>${r.gesamt}</b></td><td><span class="badge ${r.status}">${r.status}</span></td></tr>`).join('')
     || '<tr><td colspan="5" class="leer">Noch keine Ergebnisse</td></tr>';
 }
 
 const EINST = [
-  ['csv_pfad', 'CSV-Datei'], ['nummer_min', 'Schützennummer von'], ['nummer_max', 'Schützennummer bis'],
-  ['nummer_lesen', 'Schützennummer automatisch lesen', 'ja'],
+  ['csv_pfad', 'CSV-Datei'], ['nummer_erfassen', 'Schützennummer erfassen', 'ja'],
+  ['nummer_lesen', 'Schützennummer automatisch lesen (wenn erfasst)', 'ja'],
   ['nummern_sammeln', 'Nummern-Ausschnitte sammeln (Ordner „nummern“)', 'ja'],
-  ['kamera_index', 'Kamera-Nr.'], ['kamera_festhalten', 'Fokus/Belichtung festhalten', 'ja'],
+  ['nummer_min', 'Schützennummer von'], ['nummer_max', 'Schützennummer bis'],
+  ['kamera_index', 'Kamera-Nr.'], ['kamera_mjpg', 'MJPG-Format (mehr Bilder/s)', 'ja'],
+  ['kamera_festhalten', 'Fokus/Belichtung festhalten', 'ja'],
   ['kamera_fokus', 'Fester Fokus (−1 = automatisch ermittelt, Regler oben wirkt sofort)'],
   ['stabile_frames', 'Ruhe-Frames bis Aufnahme'], ['stabil_toleranz', 'Ruhe-Toleranz (Anteil der Raute)'],
   ['aufnahme_bilder', 'Bilder je Aufnahme (Abstimmung)'],
