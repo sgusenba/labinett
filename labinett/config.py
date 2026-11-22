@@ -42,7 +42,7 @@ class Einstellungen:
     # Webcam im MJPG-Format öffnen: viele USB-Kameras liefern 1080p sonst nur mit ~5 Bildern/s
     kamera_mjpg: bool = True
     # Schützennummer erfassen (Ausschnitt anzeigen, Eingabe verlangen); False = ohne Nummer speichern
-    nummer_erfassen: bool = True
+    nummer_erfassen: bool = False
     # Gültige Schützennummern
     nummer_min: int = 1
     nummer_max: int = 250

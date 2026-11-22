@@ -9,7 +9,8 @@ TESTDATA = Path(__file__).resolve().parent.parent / "testdata"
 
 
 def client(tmp_path):
-    e = Einstellungen(csv_pfad=str(tmp_path / "erg.csv"), browser_oeffnen=False)
+    # Nummernerfassung ist standardmäßig aus; die meisten Tests prüfen sie mit
+    e = Einstellungen(csv_pfad=str(tmp_path / "erg.csv"), browser_oeffnen=False, nummer_erfassen=True)
     return TestClient(erstelle_app(e, mit_kamera=False, config_pfad=tmp_path / "labinett.json"))
 
 
@@ -187,7 +188,7 @@ def test_fokus_endpunkt_mit_kamera(tmp_path, monkeypatch):
 
 
 def test_ohne_schuetzennummer(tmp_path):
-    e = Einstellungen(csv_pfad=str(tmp_path / "erg.csv"), browser_oeffnen=False, nummer_erfassen=False)
+    e = Einstellungen(csv_pfad=str(tmp_path / "erg.csv"), browser_oeffnen=False)  # Standard: aus
     c = TestClient(erstelle_app(e, mit_kamera=False, config_pfad=tmp_path / "labinett.json"))
     with open(TESTDATA / "nikolo_04.jpg", "rb") as f:
         entwurf = c.post("/api/bild", files={"datei": ("x.jpg", f, "image/jpeg")}).json()
