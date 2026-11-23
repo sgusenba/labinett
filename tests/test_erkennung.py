@@ -151,3 +151,39 @@ def test_angeschnittene_karte_wird_nicht_gemessen():
     bild = cv2.imread(str(TESTDATA / "nikolo_02.jpg"))  # oben angeschnitten
     erk = erkenne(bild, GEO)
     assert kartenseiten_felder(cv2.cvtColor(bild, cv2.COLOR_BGR2GRAY), erk.ecken_bild) is None
+
+
+# ------------------------------------------------ Lage der Karte
+
+from labinett.erkennung import LAGE_MIN_ABSTAND, VORLAGE, _ecken, _finde_gitter_maske, _lage  # noqa: E402
+
+DREHUNGEN = {90: cv2.ROTATE_90_CLOCKWISE, 180: cv2.ROTATE_180, 270: cv2.ROTATE_90_COUNTERCLOCKWISE}
+
+
+def test_vorlage_liegt_bei():
+    assert VORLAGE.exists()
+
+
+@pytest.mark.parametrize("grad", [90, 180, 270])
+@pytest.mark.parametrize("name", [WEBCAM("18_05"), WEBCAM("19_22"), "nikolo_07.jpg"])
+def test_gedrehte_karte_gleiches_ergebnis(name, grad):
+    """Karte verdreht hingelegt: Feld 23 wird gefunden, Schusswerte bleiben gleich."""
+    bild = cv2.imread(str(TESTDATA / name))
+    ref = auswerten(name)[1]
+    erk = erkenne(cv2.rotate(bild, DREHUNGEN[grad]), GEO)
+    assert not any("Lage" in h for h in erk.hinweise)
+    for (u, v), (ur, vr) in zip(sorted(erk.positionen), sorted(ref.positionen)):
+        assert max(abs(u - ur), abs(v - vr)) * GEO.feldgroesse_mm < 0.5
+    karte = werte_aus(erk.positionen, GEO, geteilt=erk.geteilt)
+    ref_karte = werte_aus(ref.positionen, GEO, geteilt=ref.geteilt)
+    assert sorted(s.wert for s in karte.schuesse) == sorted(s.wert for s in ref_karte.schuesse)
+
+
+@pytest.mark.parametrize("name", sorted(p.name for p in TESTDATA.glob("*.jpg")))
+def test_lage_aller_testfotos_eindeutig(name):
+    grau = cv2.cvtColor(cv2.imread(str(TESTDATA / name)), cv2.COLOR_BGR2GRAY)
+    for grad, rot in [(0, None), *DREHUNGEN.items()]:
+        g = grau if rot is None else cv2.rotate(grau, rot)
+        k, abstand = _lage(g, _ecken(_finde_gitter_maske(g)))
+        assert k == grad // 90, grad
+        assert abstand > 2 * LAGE_MIN_ABSTAND

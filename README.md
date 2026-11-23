@@ -8,7 +8,7 @@ Läuft lokal unter Windows, Bedienung im Browser, Ergebnisse landen in einer CSV
 ## So funktioniert's
 
 1. `labinett.exe` starten – der Browser öffnet sich mit der Oberfläche.
-2. Karte unter die Kamera legen (aufrecht, Feld 23 oben, **dunkle Unterlage**).
+2. Karte unter die Kamera legen (Lage egal – verdrehte Karten werden erkannt; **dunkle Unterlage**).
    Liegt sie ruhig, wird automatisch aufgenommen und ausgewertet.
 3. Werte prüfen. Mit `nummer_erfassen` zusätzlich die Schützennummer prüfen: sie
    wird aus dem Kreis gelesen und vorgeschlagen; ist sie unsicher, bleibt das Feld
@@ -93,7 +93,7 @@ Die Windows-`.exe` baut GitHub Actions bei jedem Push auf `main`
 |---|---|
 | `scheibe.py` | Feldmatrix, Geometrie, Wertung eines Schusses |
 | `karte.py` | Datenmodell Karte/Schuss, Status „prüfen“ |
-| `erkennung.py` | Raute finden, entzerren, Löcher finden, Nummern-Ausschnitt |
+| `erkennung.py` + `modelle/raster_vorlage.png` | Raute finden, Lage der Karte (Feld 23) über die Feldzahlen erkennen, entzerren, Löcher finden, Nummern-Ausschnitt |
 | `nummer.py` + `modelle/ziffern.onnx` | Schützennummer lesen (Kreis, Ziffern trennen, kleines CNN über OpenCV-DNN) |
 | `kamera.py` | Webcam-Thread, Live-Erkennung, Auto-Aufnahme |
 | `app.py` + `static/` | Web-Oberfläche und API |
@@ -107,8 +107,10 @@ Die Windows-`.exe` baut GitHub Actions bei jedem Push auf `main`
   synthetischen mehrstelligen Nummern (`testdata/nummern/`). Die gesammelten
   Ausschnitte (`nummern/`) eignen sich als echter Testsatz bzw. zum Nachtrainieren
   (`tools/ziffern_trainieren.py`).
-- Die Karte muss aufrecht liegen; für eine gedrehte Kamera gibt es
-  `"extra": {"drehung": 1..3}` (90°-Schritte).
+- Die Lage der Karte (0/90/180/270°) wird über die aufgedruckten Feldzahlen
+  erkannt (Vorlage `modelle/raster_vorlage.png`, neu bauen mit
+  `python tools/lage_vorlage.py`). Ist sie nicht eindeutig, erscheint ein Hinweis
+  und es gilt `"extra": {"drehung": 1..3}` (90°-Schritte, Standard 0 = Feld 23 oben).
 - Stark überlappende Löcher werden über die Fläche aufgeteilt; das Ziel von
   5 Schüssen hilft dabei. Ihr Mittelpunkt ist ungenauer, daher gilt für sie die
   doppelte Toleranz (`toleranz_mm`) bis „prüfen“.

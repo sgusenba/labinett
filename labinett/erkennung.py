@@ -1,13 +1,14 @@
 """Bilderkennung: Raute finden, entzerren, Einschusslöcher finden.
 
 Annahmen
-- Karte liegt aufrecht: Feld 23 ist die oberste Spitze der Raute im Bild.
-  (``drehung`` erlaubt 90°-Schritte, falls die Kamera anders montiert ist.)
+- Die Karte darf in jeder 90°-Lage liegen: welche Spitze Feld 23 ist, wird über
+  die aufgedruckten Ziffern bestimmt (Vergleich mit ``modelle/raster_vorlage.png``,
+  siehe ``_lage``). Nur wenn das nicht eindeutig gelingt, gilt ``drehung``.
 - Unterlage ist dunkel, damit die Löcher als dunkle Flecken erscheinen.
 
 Ablauf
 1. Gitter als zusammenhängende dunkle Linienstruktur mit ~25 Innenflächen finden.
-2. Vier Spitzen der Raute bestimmen, Homographie auf ein Normbild rechnen
+2. Vier Spitzen der Raute bestimmen, Lage der Karte (0/90/180/270°) erkennen, Homographie auf ein Normbild rechnen
    (``PX`` Pixel pro Feld, ``RAND`` Feldbreiten Rand rundum).
 3. Gitterlinien im Normbild per Projektionsprofil nachjustieren.
 4. Linien und Ziffern per morphologischem Öffnen entfernen, übrig bleiben Löcher.
@@ -16,7 +17,10 @@ Ablauf
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass, field
+from functools import lru_cache
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -90,7 +94,7 @@ def _finde_gitter_maske(grau: np.ndarray) -> np.ndarray:
     return voll
 
 
-def _ecken(maske: np.ndarray, drehung: int) -> np.ndarray:
+def _ecken(maske: np.ndarray, drehung: int = 0) -> np.ndarray:
     """Vier Rautenspitzen: oben, rechts, unten, links (im Uhrzeigersinn ab Feld 23)."""
     pts = cv2.findNonZero(maske).reshape(-1, 2).astype(np.float64)
     x, y = pts[:, 0], pts[:, 1]
@@ -185,6 +189,70 @@ def _pixel_zu_raster(p: float, lagen: np.ndarray) -> float:
     return float(np.interp(p, lagen, idx))
 
 
+# ---------------------------------------------------------------- Lage der Karte
+
+VORLAGE = Path(__file__).resolve().parent / "modelle" / "raster_vorlage.png"
+if getattr(sys, "frozen", False):  # PyInstaller
+    VORLAGE = Path(getattr(sys, "_MEIPASS")) / "labinett" / "modelle" / "raster_vorlage.png"
+
+LAGE_PX = 32  # Pixel pro Feld beim Lagevergleich
+# Mindestabstand der besten zur zweitbesten Lage. Auf den Testfotos (Leave-one-out,
+# alle 4 Lagen) liegt er bei ≥ 0,11, die beste Korrelation bei ≥ 0,77.
+LAGE_MIN_ABSTAND = 0.04
+
+
+def _linien_maske(px: int = LAGE_PX) -> np.ndarray:
+    k = np.arange(5 * px) % px
+    band = np.minimum(k, px - k) < 0.15 * px
+    return band[None, :] | band[:, None]
+
+
+def ziffern_tinte(grau: np.ndarray, ecken: np.ndarray) -> np.ndarray:
+    """Raster auf 5 × 5 Felder entzerrt, Tinte (0..1) ohne die Gitterlinien.
+
+    ``ecken`` in der Reihenfolge oben(23), rechts(25), unten(22), links(24).
+    Übrig bleiben im Wesentlichen die aufgedruckten Feldzahlen.
+    """
+    px = LAGE_PX
+    ziel = np.float32([[0, 0], [5 * px, 0], [5 * px, 5 * px], [0, 5 * px]])
+    H = cv2.getPerspectiveTransform(ecken.astype(np.float32), ziel)
+    r = cv2.warpPerspective(grau, H, (5 * px, 5 * px)).astype(np.float32)
+    hell = cv2.dilate(r, np.ones((9, 9), np.uint8))
+    tinte = np.clip((hell - r) / np.maximum(hell, 1), 0, 1)
+    tinte = cv2.GaussianBlur(tinte, (0, 0), 1.2)
+    tinte[_linien_maske(px)] = 0
+    return tinte
+
+
+@lru_cache(maxsize=1)
+def _vorlage() -> np.ndarray | None:
+    if not VORLAGE.exists():
+        return None
+    v = cv2.imread(str(VORLAGE), cv2.IMREAD_GRAYSCALE)
+    return None if v is None else v.astype(np.float32)
+
+
+def _korrelation(a: np.ndarray, b: np.ndarray) -> float:
+    a = a - a.mean()
+    b = b - b.mean()
+    n = float(np.sqrt((a * a).sum() * (b * b).sum()))
+    return float((a * b).sum() / n) if n > 0 else 0.0
+
+
+def _lage(grau: np.ndarray, ecken: np.ndarray) -> tuple[int, float] | None:
+    """Wie oft ``ecken`` weitergerollt werden muss, damit Feld 23 vorne steht.
+
+    Vergleicht die Feldzahlen in allen vier Lagen mit der Vorlage. Liefert
+    (Rollschritte, Abstand beste – zweitbeste Lage) oder ``None`` ohne Vorlage.
+    """
+    vorlage = _vorlage()
+    if vorlage is None:
+        return None
+    werte = [_korrelation(ziffern_tinte(grau, np.roll(ecken, -k, axis=0)), vorlage) for k in range(4)]
+    reihe = np.argsort(werte)
+    return int(reihe[-1]), float(werte[reihe[-1]] - werte[reihe[-2]])
+
+
 # ---------------------------------------------------------------- Löcher
 
 
@@ -250,7 +318,15 @@ def _teile_flecken(
 def erkenne(bild_bgr: np.ndarray, geo: Geometrie, drehung: int = 0) -> Erkennung:
     grau = cv2.cvtColor(bild_bgr, cv2.COLOR_BGR2GRAY)
     maske = _finde_gitter_maske(grau)
-    ecken = _ecken(maske, drehung)
+    ecken = _ecken(maske)
+    hinweise = []
+    lage = _lage(grau, ecken)
+    if lage is not None and lage[1] >= LAGE_MIN_ABSTAND:
+        ecken = np.roll(ecken, -lage[0], axis=0)
+    else:
+        ecken = np.roll(ecken, -(drehung % 4), axis=0)
+        if lage is not None:
+            hinweise.append("Lage der Karte unsicher – liegt Feld 23 oben?")
     Hm = _homographie(ecken)
     norm = cv2.warpPerspective(grau, Hm, (NORM, NORM), flags=cv2.INTER_LINEAR, borderValue=0)
     norm_gitter = cv2.warpPerspective(maske, Hm, (NORM, NORM), flags=cv2.INTER_NEAREST)
@@ -280,7 +356,6 @@ def erkenne(bild_bgr: np.ndarray, geo: Geometrie, drehung: int = 0) -> Erkennung
     positionen = [(u, v) for u, v, _ in kandidaten]
     geteilt = [g for _, _, g in kandidaten]
 
-    hinweise = []
     if len(positionen) != SCHUESSE_PRO_KARTE:
         hinweise.append(f"{len(positionen)} Löcher erkannt")
     if (abw := kartengroesse_abweichung(grau, ecken)) is not None and abw > KARTE_TOLERANZ:
