@@ -137,7 +137,6 @@ GitHub Actions testet jeden Stand und baut die `.exe`.
 3. Schützennummer: Zuverlässigkeit an 30–50 echten Karten mit mehrstelligen Nummern messen (siehe unten)
 4. QR-Code mit Karten-UUID auf den Karten (Spalte `karten_uuid` ist vorbereitet)
 5. Auswertung der CSV: Rangliste, Export für Siegerehrung
-6. Optional: Kamera-Drehung automatisch erkennen
 
 ### Schützennummer automatisch lesen
 

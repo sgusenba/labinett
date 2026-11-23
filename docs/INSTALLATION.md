@@ -77,7 +77,7 @@ Neustart des Programms.
 ## 5. Kamera ausrichten und testen
 
 1. Unterlage unter die Kamera legen, eine bereits geschossene Karte darauf –
-   **aufrecht**, Feld 23 zeigt nach oben (weg von dir).
+   egal in welcher Lage – die Software erkennt, wo Feld 23 liegt.
 2. Im Live-Bild muss die ganze Karte zu sehen sein, mit etwas Rand.
 3. Wird die Raute erkannt, erscheint ein Rahmen:
    **gelb/orange** = erkannt, wartet auf Ruhe · **grün** = aufgenommen.
