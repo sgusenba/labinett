@@ -9,6 +9,10 @@ from pathlib import Path
 
 from .scheibe import Geometrie
 
+# Bereich des Anriss-Reglers (wie in der Web-Version −0,05 … +0,1 Feldbreiten bei 16 mm)
+ANRISS_MIN_MM = -0.8
+ANRISS_MAX_MM = 1.6
+
 
 def programm_ordner() -> Path:
     """Ordner der .exe bei PyInstaller-Builds, sonst das Arbeitsverzeichnis."""
@@ -26,9 +30,11 @@ class Einstellungen:
     port: int = 8765
     browser_oeffnen: bool = True
     # Feldgröße (16 mm) und Kaliber (4,5 mm) sind fest, siehe scheibe.py.
-    # Einstellbar bleiben nur Druckstärke der Linien und Unsicherheits-Band.
+    # Einstellbar bleiben nur Druckstärke der Linien, Anriss-Toleranz und Unsicherheits-Band.
     linienbreite_mm: float = 0.4
     toleranz_mm: float = 0.5
+    # Anriss-Toleranz in mm: negativ = strenger, positiv = großzügiger (auch per Regler einstellbar)
+    anriss_toleranz_mm: float = 0.0
     # Auto-Aufnahme: so viele aufeinanderfolgende stabile Frames
     stabile_frames: int = 8
     # Ruhig = keine Rautenecke bewegt sich mehr als dieser Anteil der Diagonale
@@ -59,6 +65,7 @@ class Einstellungen:
         return Geometrie(
             linienbreite_mm=self.linienbreite_mm,
             toleranz_mm=self.toleranz_mm,
+            anriss_toleranz_mm=self.anriss_toleranz_mm,
         )
 
     def csv_datei(self, basis: Path | None = None) -> Path:
@@ -72,6 +79,10 @@ class Einstellungen:
             raise ValueError("Nummernbereich ungültig")
         if self.stabile_frames < 1 or self.aufnahme_bilder < 1:
             raise ValueError("Frames müssen mindestens 1 sein")
+        if not ANRISS_MIN_MM <= self.anriss_toleranz_mm <= ANRISS_MAX_MM:
+            raise ValueError(
+                f"Anriss-Toleranz muss zwischen {ANRISS_MIN_MM} und {ANRISS_MAX_MM} mm liegen"
+            )
         if not 0 < self.stabil_toleranz < 0.2:
             raise ValueError("Ruhe-Toleranz muss zwischen 0 und 0,2 liegen")
 

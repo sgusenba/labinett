@@ -93,3 +93,22 @@ def test_abstand():
 def test_geometrie_validierung():
     with pytest.raises(ValueError):
         Geometrie(feldgroesse_mm=0)
+
+
+def test_anriss_toleranz_verschiebt_schwelle():
+    from dataclasses import replace
+
+    # Loch in 16 = (1,2), Rand 0,3 mm vor der Linie zu 12 (v = 3): zählt normal nicht
+    v = 3 - GEO.schwelle - 0.3 / GEO.feldgroesse_mm
+    assert bewerte_schuss(1.5, v, GEO).felder == (16,)
+    # großzügiger: +0,5 mm -> Anriss
+    assert bewerte_schuss(1.5, v, replace(GEO, anriss_toleranz_mm=0.5)).felder == (12, 16)
+    # Loch knapp in der Linie: strenger (−0,5 mm) -> kein Anriss mehr
+    v2 = 3 - GEO.schwelle + 0.2 / GEO.feldgroesse_mm
+    assert bewerte_schuss(1.5, v2, GEO).felder == (12, 16)
+    assert bewerte_schuss(1.5, v2, replace(GEO, anriss_toleranz_mm=-0.5)).felder == (16,)
+
+
+def test_anriss_toleranz_nicht_unter_lochradius():
+    with pytest.raises(ValueError):
+        Geometrie(lochdurchmesser_mm=4.5, linienbreite_mm=0.0, anriss_toleranz_mm=-2.3)

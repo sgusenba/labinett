@@ -39,6 +39,9 @@
   .einst { display:grid; grid-template-columns: 1fr minmax(110px, 260px); gap:6px 10px; align-items:center; margin-top:8px; }
   .einst input { font:inherit; padding:3px 5px; }
   #ergebnisse td, #ergebnisse th { font-size:13px; }
+  .anriss { display:flex; gap:8px; align-items:center; flex-wrap:wrap; font-size:13px; color:var(--grau); margin-bottom:10px; }
+  .anriss input[type=range] { flex:1; min-width:140px; }
+  .anriss output { min-width:64px; font-variant-numeric:tabular-nums; color:var(--text); }
   @media (max-width: 900px) { main { grid-template-columns:1fr; } }
 </style>
 </head>
@@ -83,6 +86,12 @@
 
   <section id="auswertung">
     <h2>Auswertung</h2>
+    <div class="anriss" title="Verschiebt die Grenze, ab der ein Loch eine Linie berührt. Wirkt sofort auf die angezeigte Karte und wird gespeichert.">
+      <label for="anriss">Anriss-Toleranz (negativ = strenger, positiv = großzügiger)</label>
+      <input type="range" id="anriss" min="-0.8" max="1.6" step="0.05" value="0">
+      <output id="anrisswert">0,00 mm</output>
+      <button id="btnAnrissNull" title="Auf 0 zurücksetzen">0</button>
+    </div>
     <div id="inhalt" class="leer">Karte unter die Kamera legen – die Aufnahme startet automatisch, sobald sie ruhig liegt.</div>
   </section>
 </main>
@@ -90,6 +99,7 @@
 <script>
 const $ = (id) => document.getElementById(id);
 let aktuellerEntwurf = null;   // Zeitstempel des angezeigten Entwurfs
+let angezeigterEntwurf = null; // Zeitstempel des zuletzt gezeichneten Entwurfs (für Neu-Wertung)
 let streamGestartet = false;
 let csvWarteteVorher = false;
 
@@ -115,6 +125,10 @@ function zeigeEntwurf(e) {
     <td><input data-nr="${k.schuesse.length + i + 1}" value="" placeholder="nicht erkannt"></td><td></td><td class="wert">0</td></tr>`).join('');
   const gruende = (k.gruende_pruefen || []).filter((g) => !g.startsWith('Schützennummer'));
   const mitNummer = e.nummer_erfassen !== false;
+  // Bei Neu-Wertung (Anriss-Regler) Eingaben des Bedieners behalten
+  const behalten = e.id === angezeigterEntwurf
+    ? {nummer: $('nummer') ? $('nummer').value : null, bemerkung: $('bemerkung') ? $('bemerkung').value : ''} : null;
+  angezeigterEntwurf = e.id;
   $('inhalt').className = '';
   $('inhalt').innerHTML = `
     <div class="entwurf" ${mitNummer ? '' : 'style="grid-template-columns:1fr"'}>
@@ -140,7 +154,10 @@ function zeigeEntwurf(e) {
   document.querySelectorAll('#schuesse input').forEach((i) => i.addEventListener('input', neuSumme));
   $('btnSpeichern').onclick = speichern;
   $('btnVerwerfen').onclick = verwerfen;
-  ($('nummer') || $('btnSpeichern')).focus();
+  if (behalten) {
+    if ($('nummer') && behalten.nummer !== null) $('nummer').value = behalten.nummer;
+    $('bemerkung').value = behalten.bemerkung;
+  } else ($('nummer') || $('btnSpeichern')).focus();
 }
 
 function feldwerte(text) {
@@ -180,6 +197,7 @@ async function verwerfen() {
 
 function leeren() {
   aktuellerEntwurf = null;
+  angezeigterEntwurf = null;
   $('inhalt').className = 'leer';
   $('inhalt').textContent = 'Nächste Karte unter die Kamera legen.';
 }
@@ -190,7 +208,7 @@ document.addEventListener('keydown', (ev) => {
 });
 
 $('btnAufnehmen').onclick = async () => {
-  try { const e = await api('/api/aufnehmen', {method: 'POST'}); aktuellerEntwurf = e.karte.zeitstempel; zeigeEntwurf(e); }
+  try { const e = await api('/api/aufnehmen', {method: 'POST'}); aktuellerEntwurf = e.id; zeigeEntwurf(e); }
   catch (err) { $('kamerainfo').textContent = err.message; }
 };
 
@@ -215,10 +233,27 @@ $('fokus').oninput = () => { $('fokuszahl').value = $('fokus').value; fokusSende
 $('fokuszahl').onchange = () => { const w = Math.max(0, Math.round(+$('fokuszahl').value || 0)); fokusAnzeigen(w); fokusSenden(w); };
 $('btnAutofokus').onclick = () => fokusSenden(-1);
 
+// ---- Anriss-Toleranz: Regler wertet den offenen Entwurf sofort neu
+let anrissTimer = null;
+const mmText = (w) => (w > 0 ? '+' : '') + w.toFixed(2).replace('.', ',') + ' mm';
+function anrissAnzeigen(wert) { $('anriss').value = wert; $('anrisswert').textContent = mmText(+wert); }
+function anrissSenden(wert) {
+  $('anrisswert').textContent = mmText(wert);
+  clearTimeout(anrissTimer);
+  anrissTimer = setTimeout(async () => {
+    try {
+      const r = await api('/api/anriss-toleranz', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({wert})});
+      if (r.entwurf && r.entwurf.id === aktuellerEntwurf) zeigeEntwurf(r.entwurf);
+    } catch (err) { $('kamerainfo').textContent = err.message; }
+  }, 60);
+}
+$('anriss').oninput = () => anrissSenden(+$('anriss').value);
+$('btnAnrissNull').onclick = () => { anrissAnzeigen(0); anrissSenden(0); };
+
 $('datei').onchange = async (ev) => {
   const f = ev.target.files[0]; if (!f) return;
   const fd = new FormData(); fd.append('datei', f);
-  try { const e = await api('/api/bild', {method: 'POST', body: fd}); aktuellerEntwurf = e.karte.zeitstempel; zeigeEntwurf(e); }
+  try { const e = await api('/api/bild', {method: 'POST', body: fd}); aktuellerEntwurf = e.id; zeigeEntwurf(e); }
   catch (err) { $('kamerainfo').textContent = err.message; }
   ev.target.value = '';
 };
@@ -242,12 +277,13 @@ async function poll() {
     $('btnAutofokus').classList.toggle('primaer', !!k.autofokus);
     $('stabil').style.width = Math.round((k.stabil || 0) * 100) + '%';
     if (k.kamera_ok && !streamGestartet) { $('live').src = '/stream.mjpg'; $('live').hidden = false; $('keinekamera').hidden = true; streamGestartet = true; }
-    if (s.entwurf && s.entwurf.karte.zeitstempel !== aktuellerEntwurf) {
-      aktuellerEntwurf = s.entwurf.karte.zeitstempel;
-      zeigeEntwurf(s.entwurf);
+    if (s.entwurf && s.entwurf.id !== aktuellerEntwurf) {
+      aktuellerEntwurf = s.entwurf.id;
+      const e = await api('/api/entwurf');  // Bild nur bei neuem Entwurf laden
+      if (e && e.id === aktuellerEntwurf) zeigeEntwurf(e);
     }
   } catch (_) { $('kopfstatus').textContent = 'Verbindung zum Programm verloren'; }
-  setTimeout(poll, 250);  // kurz halten: neue Auswertung erscheint sonst spürbar verzögert
+  setTimeout(poll, 150);  // kurz halten: neue Auswertung erscheint sonst spürbar verzögert
 }
 
 async function ladeErgebnisse() {
@@ -275,6 +311,7 @@ const EINST = [
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
 async function ladeEinstellungen() {
   const e = await api('/api/einstellungen');
+  anrissAnzeigen(e.anriss_toleranz_mm || 0);
   $('einst').innerHTML = EINST.map(([k, l, typ]) => typ === 'ja'
     ? `<label for="e_${k}">${l}</label><input id="e_${k}" type="checkbox" ${e[k] ? 'checked' : ''} style="justify-self:start">`
     : `<label for="e_${k}">${l}</label><input id="e_${k}" value="${esc(e[k])}">`).join('');

@@ -233,3 +233,31 @@ def test_nummernerfassung_live_abschalten(tmp_path):
     # Nummer darf trotzdem angegeben werden, wird dann geprüft
     assert c.post("/api/speichern", json={"schuetzennummer": "999"}).status_code == 400
     assert c.post("/api/speichern", json={"schuetzennummer": "8"}).json()["schuetzennummer"] == "8"
+
+
+def test_anriss_toleranz_wertet_entwurf_neu(tmp_path):
+    c = client(tmp_path)
+    with open(TESTDATA / "nikolo_06.jpg", "rb") as f:
+        alt = c.post("/api/bild", files={"datei": ("x.jpg", f, "image/jpeg")}).json()["karte"]
+    assert alt["gesamt"] == 71
+    r = c.post("/api/anriss-toleranz", json={"wert": 0.8})
+    assert r.status_code == 200, r.text
+    neu = r.json()["entwurf"]["karte"]
+    assert neu["zeitstempel"] == alt["zeitstempel"]  # gleicher Entwurf, nur neu gewertet
+    assert neu["gesamt"] == 86  # großzügiger: ein weiteres Loch zählt als Anriss
+    assert c.get("/api/einstellungen").json()["anriss_toleranz_mm"] == 0.8
+    assert c.get("/api/entwurf").json()["karte"]["gesamt"] == 86
+    streng = c.post("/api/anriss-toleranz", json={"wert": -0.8}).json()["entwurf"]["karte"]
+    assert streng["gesamt"] == 55
+    zurueck = c.post("/api/anriss-toleranz", json={"wert": 0}).json()["entwurf"]["karte"]
+    assert zurueck["gesamt"] == 71
+    assert c.post("/api/anriss-toleranz", json={"wert": 5}).status_code == 400
+    assert c.post("/api/einstellungen", json={"anriss_toleranz_mm": "-3"}).status_code == 400
+    # gespeichert wird der neu gewertete Entwurf
+    c.post("/api/anriss-toleranz", json={"wert": 0.8})
+    assert c.post("/api/speichern", json={"schuetzennummer": "7"}).json()["gesamt"] == 86
+
+
+def test_anriss_toleranz_ohne_entwurf(tmp_path):
+    r = client(tmp_path).post("/api/anriss-toleranz", json={"wert": -0.2})
+    assert r.status_code == 200 and r.json()["entwurf"] is None
