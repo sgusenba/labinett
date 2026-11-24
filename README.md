@@ -47,6 +47,7 @@ Diese Werte stehen fest in `labinett/scheibe.py` und sind nicht einstellbar.
 | `kamera_index` | 0 | welche Webcam |
 | `linienbreite_mm` | 0.4 | Druckstärke der Linien |
 | `toleranz_mm` | 0.5 | so nah an der Berührungsgrenze → „prüfen“ |
+| `anriss_toleranz_mm` | 0.0 | Anriss-Toleranz: verschiebt die Berührungsgrenze (−0,8 … +1,6 mm; negativ = strenger, positiv = großzügiger). Regler über der Auswertung, wertet die angezeigte Karte sofort neu |
 | `stabile_frames` | 8 | Ruhe-Frames bis zur Auto-Aufnahme |
 | `stabil_toleranz` | 0.01 | „ruhig“ = keine Rautenecke bewegt sich mehr als dieser Anteil der Diagonale |
 | `aufnahme_bilder` | 3 | so viele ruhige Bilder werden ausgewertet; die Mehrheit zählt, Abweichungen werden markiert |

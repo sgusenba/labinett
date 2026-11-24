@@ -51,6 +51,9 @@ class Geometrie:
     lochdurchmesser_mm: float = KALIBER_MM
     linienbreite_mm: float = 0.0
     toleranz_mm: float = 0.5  # so nah an der Schwelle wird ein Schuss als unsicher markiert
+    # Anriss-Toleranz: verschiebt die Berührungsschwelle. Negativ = strenger (das Loch
+    # muss tiefer in die Linie reichen), positiv = großzügiger (knapp daneben zählt schon).
+    anriss_toleranz_mm: float = 0.0
 
     def __post_init__(self) -> None:
         if self.feldgroesse_mm <= 0:
@@ -59,11 +62,15 @@ class Geometrie:
             raise ValueError("lochdurchmesser_mm muss > 0 sein")
         if self.linienbreite_mm < 0 or self.toleranz_mm < 0:
             raise ValueError("linienbreite_mm und toleranz_mm dürfen nicht negativ sein")
+        if self.lochdurchmesser_mm / 2 + self.linienbreite_mm / 2 + self.anriss_toleranz_mm <= 0:
+            raise ValueError("anriss_toleranz_mm ist kleiner als der Lochradius")
 
     @property
     def schwelle(self) -> float:
-        """Berührungsschwelle in Feldeinheiten: Lochradius + halbe Linienbreite."""
-        return (self.lochdurchmesser_mm / 2 + self.linienbreite_mm / 2) / self.feldgroesse_mm
+        """Berührungsschwelle in Feldeinheiten: Lochradius + halbe Linienbreite + Anriss-Toleranz."""
+        return (
+            self.lochdurchmesser_mm / 2 + self.linienbreite_mm / 2 + self.anriss_toleranz_mm
+        ) / self.feldgroesse_mm
 
     @property
     def toleranz(self) -> float:
@@ -102,7 +109,7 @@ def bewerte_schuss(u: float, v: float, geo: Geometrie) -> Treffer:
     """Ermittelt alle Felder, die ein Loch mit Mittelpunkt (u, v) berührt.
 
     Ein Feld zählt, wenn der Abstand vom Lochmittelpunkt zum Feldquadrat
-    höchstens Lochradius + halbe Linienbreite beträgt. Liegt ein Abstand
+    höchstens Lochradius + halbe Linienbreite + Anriss-Toleranz beträgt. Liegt ein Abstand
     innerhalb der Toleranz um diese Schwelle, ist der Schuss unsicher.
     """
     s = geo.schwelle

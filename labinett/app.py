@@ -97,6 +97,8 @@ class Zustand:
         self.entwurf: dict | None = None
         self.entwurf_karte: Karte | None = None
         self.entwurf_ausschnitt: np.ndarray | None = None
+        # Erkennung des Entwurfs (Bilder + Lochpositionen), um ihn ohne neue Erkennung neu zu werten
+        self.entwurf_erkannt: tuple[list[tuple[np.ndarray, Erkennung]], int] | None = None
         self.letzte_meldung = ""
         self.letzter_nachtrag = 0.0
 
@@ -107,17 +109,9 @@ class Zustand:
         geo = self.einst.geometrie
         drehung = int(self.einst.extra.get("drehung", 0))
         erkannt, fehler = _erkenne_alle(bilder, geo, drehung)
-        ergebnisse = [
-            (bild, erk, werte_aus(erk.positionen, geo, geteilt=erk.geteilt)) for bild, erk in erkannt
-        ]
-        if not ergebnisse:
+        if not erkannt:
             raise HTTPException(422, str(fehler or "Kein Bild"))
-        bild, erk, karte, einig = abstimmen(ergebnisse)
-        hinweise = list(erk.hinweise)
-        if einig < len(bilder):
-            hinweise.append(
-                f"nur {einig} von {len(bilder)} Aufnahmen stimmen überein – abweichende Schüsse markiert"
-            )
+        ergebnisse, bild, erk, karte, hinweise = self._werten(erkannt, len(bilder))
         ausschnitt = None
         nummer_bild = None
         if self.einst.nummer_erfassen:
@@ -152,13 +146,60 @@ class Zustand:
             self.entwurf = entwurf
             self.entwurf_karte = karte
             self.entwurf_ausschnitt = ausschnitt
+            self.entwurf_erkannt = (erkannt, len(bilder))
         return entwurf
+
+    def _werten(
+        self, erkannt: list[tuple[np.ndarray, Erkennung]], anzahl_bilder: int
+    ) -> tuple[list, np.ndarray, Erkennung, Karte, list[str]]:
+        """Erkannte Lochpositionen mit der aktuellen Geometrie werten und abstimmen."""
+        geo = self.einst.geometrie
+        ergebnisse = [
+            (bild, erk, werte_aus(erk.positionen, geo, geteilt=erk.geteilt)) for bild, erk in erkannt
+        ]
+        bild, erk, karte, einig = abstimmen(ergebnisse)
+        hinweise = list(erk.hinweise)
+        if einig < anzahl_bilder:
+            hinweise.append(
+                f"nur {einig} von {anzahl_bilder} Aufnahmen stimmen überein – abweichende Schüsse markiert"
+            )
+        return ergebnisse, bild, erk, karte, hinweise
+
+    def neu_werten(self) -> dict | None:
+        """Aktuellen Entwurf mit geänderter Toleranz neu werten (ohne neue Erkennung).
+
+        Schützennummer, Zeitstempel und Nummernbild bleiben erhalten.
+        """
+        with self.lock:
+            if self.entwurf is None or self.entwurf_karte is None or self.entwurf_erkannt is None:
+                return None
+            erkannt, anzahl = self.entwurf_erkannt
+            alt = self.entwurf_karte
+            _, _, erk, karte, hinweise = self._werten(erkannt, anzahl)
+            karte.zeitstempel = alt.zeitstempel
+            karte.schuetzennummer = alt.schuetzennummer
+            karte.nummer_quelle = alt.nummer_quelle
+            karte.nummer_pflicht = alt.nummer_pflicht
+            karte.karten_uuid = alt.karten_uuid
+            alte_hinweise = [h for h in self.entwurf["hinweise"] if h.startswith("Nummer nicht sicher")]
+            self.entwurf = {
+                **self.entwurf,
+                "karte": karte.als_dict(),
+                "bild": _b64_jpeg(_markiere(erk.normbild, karte)),
+                "hinweise": hinweise + alte_hinweise,
+            }
+            self.entwurf_karte = karte
+            return self.entwurf
 
 
 class SpeichernAnfrage(BaseModel):
     schuetzennummer: str = ""  # darf leer bleiben, wenn die Nummernerfassung aus ist
     felder: list[str] | None = None  # optional korrigiert, je Schuss z. B. "16+12"
     bemerkung: str = ""
+
+
+class AnrissAnfrage(BaseModel):
+    wert: float  # mm, negativ = strenger, positiv = großzügiger
 
 
 class FokusAnfrage(BaseModel):
@@ -346,6 +387,18 @@ def erstelle_app(
         config.speichern(einst, config_pfad)
         return {"ok": True, "fokus": anfrage.wert}
 
+    @app.post("/api/anriss-toleranz")
+    def anriss_toleranz(anfrage: AnrissAnfrage) -> dict:
+        """Anriss-Toleranz setzen, speichern und den offenen Entwurf sofort neu werten."""
+        if not config.ANRISS_MIN_MM <= anfrage.wert <= config.ANRISS_MAX_MM:
+            raise HTTPException(
+                400,
+                f"Anriss-Toleranz muss zwischen {config.ANRISS_MIN_MM} und {config.ANRISS_MAX_MM} mm liegen",
+            )
+        einst.anriss_toleranz_mm = round(anfrage.wert, 3)
+        config.speichern(einst, config_pfad)
+        return {"ok": True, "wert": einst.anriss_toleranz_mm, "entwurf": zustand.neu_werten()}
+
     @app.post("/api/bild")
     async def bild(datei: UploadFile = File(...)) -> dict:
         daten = np.frombuffer(await datei.read(), np.uint8)
@@ -408,6 +461,7 @@ def erstelle_app(
                 _sammle_nummer(ordner / "nummern", zustand.entwurf_ausschnitt, karte)
             zustand.entwurf = None
             zustand.entwurf_karte = None
+            zustand.entwurf_erkannt = None
         return ergebnis
 
     @app.post("/api/verwerfen")
@@ -415,6 +469,7 @@ def erstelle_app(
         with zustand.lock:
             zustand.entwurf = None
             zustand.entwurf_karte = None
+            zustand.entwurf_erkannt = None
         return {"ok": True}
 
     @app.get("/api/ergebnisse")
@@ -450,6 +505,8 @@ def erstelle_app(
         for k, v in geaendert.items():
             setattr(einst, k, v)
         config.speichern(einst, config_pfad)
+        if geaendert.keys() & {"linienbreite_mm", "toleranz_mm", "anriss_toleranz_mm"}:
+            zustand.neu_werten()  # offenen Entwurf mit den neuen Maßen werten
         return JSONResponse({"ok": True, "hinweis": "Gespeichert. Kamera-Einstellungen wirken nach Neustart."})
 
     @app.post("/api/csv-dialog")
