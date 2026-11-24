@@ -100,6 +100,7 @@ class Zustand:
         # Erkennung des Entwurfs (Bilder + Lochpositionen), um ihn ohne neue Erkennung neu zu werten
         self.entwurf_erkannt: tuple[list[tuple[np.ndarray, Erkennung]], int] | None = None
         self.letzte_meldung = ""
+        self._entwurf_zaehler = 0  # eindeutige Entwurfs-ID (Zeitstempel hat nur Sekunden)
         self.letzter_nachtrag = 0.0
 
     def auswerten(self, bilder: np.ndarray | list[np.ndarray], quelle: str) -> dict:
@@ -134,7 +135,11 @@ class Zustand:
         else:
             karte.nummer_pflicht = False
             karte.nummer_quelle = "aus"
+        with self.lock:
+            self._entwurf_zaehler += 1
+            entwurf_id = self._entwurf_zaehler
         entwurf = {
+            "id": entwurf_id,
             "quelle": quelle,
             "karte": karte.als_dict(),
             "bild": _b64_jpeg(_markiere(erk.normbild, karte)),
@@ -325,11 +330,16 @@ def erstelle_app(
             raise HTTPException(404, "Keine Kamera aktiv")
 
         def gen():
+            # jedes neue Kamerabild senden (bis ~25 Bilder/s) statt fest 10 Bilder/s
+            letzte = -1
             while True:
-                jpg = kamera.vorschau_jpeg()
-                if jpg:
+                v = kamera.vorschau(letzte)
+                if v:
+                    letzte, jpg = v
                     yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpg + b"\r\n"
-                time.sleep(0.1)
+                    time.sleep(0.04)
+                else:
+                    time.sleep(0.01)
 
         return StreamingResponse(gen(), media_type="multipart/x-mixed-replace; boundary=frame")
 
@@ -354,13 +364,20 @@ def erstelle_app(
         return {
             "version": __version__,
             "kamera": kamera.status() if kamera else {"kamera_ok": False, "fehler": "deaktiviert"},
-            "entwurf": entwurf,
+            # nur die Kennung – das Bild holt die Oberfläche bei Bedarf über /api/entwurf,
+            # damit die häufige Statusabfrage klein und schnell bleibt
+            "entwurf": {"id": entwurf["id"]} if entwurf else None,
             "meldung": zustand.letzte_meldung,
             "csv": str(einst.csv_datei()),
             "csv_ausstehend": offen,
             "csv_fehler": csv_fehler,
             "update": app.state.update.als_dict(),
         }
+
+    @app.get("/api/entwurf")
+    def entwurf_lesen() -> dict | None:
+        with zustand.lock:
+            return zustand.entwurf
 
     @app.post("/api/aufnehmen")
     def aufnehmen() -> dict:

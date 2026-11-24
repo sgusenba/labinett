@@ -126,9 +126,9 @@ function zeigeEntwurf(e) {
   const gruende = (k.gruende_pruefen || []).filter((g) => !g.startsWith('Schützennummer'));
   const mitNummer = e.nummer_erfassen !== false;
   // Bei Neu-Wertung (Anriss-Regler) Eingaben des Bedieners behalten
-  const behalten = e.karte.zeitstempel === angezeigterEntwurf
+  const behalten = e.id === angezeigterEntwurf
     ? {nummer: $('nummer') ? $('nummer').value : null, bemerkung: $('bemerkung') ? $('bemerkung').value : ''} : null;
-  angezeigterEntwurf = e.karte.zeitstempel;
+  angezeigterEntwurf = e.id;
   $('inhalt').className = '';
   $('inhalt').innerHTML = `
     <div class="entwurf" ${mitNummer ? '' : 'style="grid-template-columns:1fr"'}>
@@ -208,7 +208,7 @@ document.addEventListener('keydown', (ev) => {
 });
 
 $('btnAufnehmen').onclick = async () => {
-  try { const e = await api('/api/aufnehmen', {method: 'POST'}); aktuellerEntwurf = e.karte.zeitstempel; zeigeEntwurf(e); }
+  try { const e = await api('/api/aufnehmen', {method: 'POST'}); aktuellerEntwurf = e.id; zeigeEntwurf(e); }
   catch (err) { $('kamerainfo').textContent = err.message; }
 };
 
@@ -243,9 +243,9 @@ function anrissSenden(wert) {
   anrissTimer = setTimeout(async () => {
     try {
       const r = await api('/api/anriss-toleranz', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({wert})});
-      if (r.entwurf && r.entwurf.karte.zeitstempel === aktuellerEntwurf) zeigeEntwurf(r.entwurf);
+      if (r.entwurf && r.entwurf.id === aktuellerEntwurf) zeigeEntwurf(r.entwurf);
     } catch (err) { $('kamerainfo').textContent = err.message; }
-  }, 150);
+  }, 60);
 }
 $('anriss').oninput = () => anrissSenden(+$('anriss').value);
 $('btnAnrissNull').onclick = () => { anrissAnzeigen(0); anrissSenden(0); };
@@ -253,7 +253,7 @@ $('btnAnrissNull').onclick = () => { anrissAnzeigen(0); anrissSenden(0); };
 $('datei').onchange = async (ev) => {
   const f = ev.target.files[0]; if (!f) return;
   const fd = new FormData(); fd.append('datei', f);
-  try { const e = await api('/api/bild', {method: 'POST', body: fd}); aktuellerEntwurf = e.karte.zeitstempel; zeigeEntwurf(e); }
+  try { const e = await api('/api/bild', {method: 'POST', body: fd}); aktuellerEntwurf = e.id; zeigeEntwurf(e); }
   catch (err) { $('kamerainfo').textContent = err.message; }
   ev.target.value = '';
 };
@@ -277,12 +277,13 @@ async function poll() {
     $('btnAutofokus').classList.toggle('primaer', !!k.autofokus);
     $('stabil').style.width = Math.round((k.stabil || 0) * 100) + '%';
     if (k.kamera_ok && !streamGestartet) { $('live').src = '/stream.mjpg'; $('live').hidden = false; $('keinekamera').hidden = true; streamGestartet = true; }
-    if (s.entwurf && s.entwurf.karte.zeitstempel !== aktuellerEntwurf) {
-      aktuellerEntwurf = s.entwurf.karte.zeitstempel;
-      zeigeEntwurf(s.entwurf);
+    if (s.entwurf && s.entwurf.id !== aktuellerEntwurf) {
+      aktuellerEntwurf = s.entwurf.id;
+      const e = await api('/api/entwurf');  // Bild nur bei neuem Entwurf laden
+      if (e && e.id === aktuellerEntwurf) zeigeEntwurf(e);
     }
   } catch (_) { $('kopfstatus').textContent = 'Verbindung zum Programm verloren'; }
-  setTimeout(poll, 250);  // kurz halten: neue Auswertung erscheint sonst spürbar verzögert
+  setTimeout(poll, 150);  // kurz halten: neue Auswertung erscheint sonst spürbar verzögert
 }
 
 async function ladeErgebnisse() {

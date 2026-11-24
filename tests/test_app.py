@@ -246,7 +246,7 @@ def test_anriss_toleranz_wertet_entwurf_neu(tmp_path):
     assert neu["zeitstempel"] == alt["zeitstempel"]  # gleicher Entwurf, nur neu gewertet
     assert neu["gesamt"] == 86  # großzügiger: ein weiteres Loch zählt als Anriss
     assert c.get("/api/einstellungen").json()["anriss_toleranz_mm"] == 0.8
-    assert c.get("/api/status").json()["entwurf"]["karte"]["gesamt"] == 86
+    assert c.get("/api/entwurf").json()["karte"]["gesamt"] == 86
     streng = c.post("/api/anriss-toleranz", json={"wert": -0.8}).json()["entwurf"]["karte"]
     assert streng["gesamt"] == 55
     zurueck = c.post("/api/anriss-toleranz", json={"wert": 0}).json()["entwurf"]["karte"]

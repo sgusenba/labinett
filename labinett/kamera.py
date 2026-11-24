@@ -70,6 +70,8 @@ class Kamera:
 
         self._lock = threading.Lock()
         self._frame: np.ndarray | None = None
+        self._frame_nr = 0  # zählt gelesene Frames, damit die Vorschau nur neue Bilder sendet
+        self._vorschau: tuple[int, bytes] | None = None  # (Frame-Nr., JPEG) – einmal kodiert für alle Zuseher
         self._ruhig: deque[np.ndarray] = deque(maxlen=self.aufnahme_bilder)
         self._ecken: np.ndarray | None = None
         self._glatt: np.ndarray | None = None  # geglättete Ecken nur für die Anzeige
@@ -135,6 +137,22 @@ class Kamera:
                 "fps": None if self.fps is None else round(self.fps, 1),
             }
 
+    def vorschau(self, nach: int = -1) -> tuple[int, bytes] | None:
+        """Vorschau-JPEG mit Frame-Nummer, nur wenn ein neueres Bild als ``nach`` vorliegt."""
+        with self._lock:
+            nr = self._frame_nr
+            zwischen = self._vorschau
+        if nr <= nach:
+            return None
+        if zwischen is not None and zwischen[0] == nr:
+            return zwischen
+        jpg = self.vorschau_jpeg()
+        if jpg is None:
+            return None
+        with self._lock:
+            self._vorschau = (nr, jpg)
+        return nr, jpg
+
     def vorschau_jpeg(self) -> bytes | None:
         with self._lock:
             if self._frame is None:
@@ -147,7 +165,7 @@ class Kamera:
             farbe = (0, 200, 0) if gesperrt or stabil >= self.stabile_frames else (0, 200, 255)
             cv2.polylines(bild, [np.round(ecken).astype(np.int32)], True, farbe, 4, cv2.LINE_AA)
         h, w = bild.shape[:2]
-        f = min(1.0, 960 / w)
+        f = min(1.0, 800 / w)
         if f < 1:
             bild = cv2.resize(bild, None, fx=f, fy=f)
         ok, buf = cv2.imencode(".jpg", bild, [cv2.IMWRITE_JPEG_QUALITY, 75])
@@ -275,6 +293,7 @@ class Kamera:
             fertig: list[np.ndarray] | None = None
             with self._lock:
                 self._frame = frame
+                self._frame_nr += 1
                 self._ecken = ecken
                 self._glaetten(ecken)
                 if ecken is None:

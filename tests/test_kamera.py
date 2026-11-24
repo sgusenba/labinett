@@ -116,3 +116,18 @@ def test_fokus_live_setzen(monkeypatch):
         assert cap.gesetzt[cv2.CAP_PROP_FOCUS] == 42.0  # eingeregelter Wert übernommen
     finally:
         k.stop()
+
+
+def test_vorschau_nur_neue_bilder():
+    import numpy as np
+
+    from labinett.kamera import Kamera
+
+    k = Kamera(0, 640, 480, 3, lambda f: None)
+    assert k.vorschau() is None
+    k._frame = np.zeros((480, 640, 3), np.uint8)
+    k._frame_nr = 1
+    nr, jpg = k.vorschau()
+    assert nr == 1 and jpg[:2] == b"\xff\xd8"
+    assert k.vorschau(nach=1) is None  # kein neues Bild -> nichts senden
+    assert k.vorschau(nach=0) == (1, jpg)  # zweiter Zuseher bekommt das schon kodierte Bild
