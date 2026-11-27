@@ -26,6 +26,45 @@ def ecken_ruhig(a: np.ndarray | None, b: np.ndarray | None, toleranz_rel: float)
     return float(np.max(np.linalg.norm(a - b, axis=1))) <= tol
 
 
+def helligkeit(bild_bgr: np.ndarray) -> tuple[float, float]:
+    """(Anteil ausgebrannter Pixel, 99-%-Helligkeit) auf einem kleinen Graubild."""
+    g = cv2.cvtColor(bild_bgr, cv2.COLOR_BGR2GRAY) if bild_bgr.ndim == 3 else bild_bgr
+    h, w = g.shape[:2]
+    g = cv2.resize(g, (160, max(1, round(160 * h / w))), interpolation=cv2.INTER_AREA)
+    return float(np.mean(g >= 250)), float(np.percentile(g, 99))
+
+
+def naechste_belichtung(wert: float, dunkler: bool) -> float:
+    """Einen Belichtungsschritt weiter.
+
+    DirectShow (Windows) meldet log2-Sekunden (z. B. −6 = 1/64 s): ein Schritt = Faktor 2.
+    V4L2 meldet die Zeit in 100 µs (positiv): ein Schritt = Faktor 0,7.
+    """
+    if wert <= 0:
+        return max(-13.0, wert - 1) if dunkler else min(-1.0, wert + 1)
+    return max(1.0, round(wert * 0.7)) if dunkler else min(10000.0, round(wert / 0.7))
+
+
+def _grau_klein(bild_bgr: np.ndarray) -> np.ndarray:
+    g = cv2.cvtColor(bild_bgr, cv2.COLOR_BGR2GRAY) if bild_bgr.ndim == 3 else bild_bgr
+    return cv2.resize(g, (160, max(1, round(160 * g.shape[0] / g.shape[1]))), interpolation=cv2.INTER_AREA)
+
+
+def karte_entfernt(
+    referenz: np.ndarray, maske: np.ndarray, jetzt_bgr: np.ndarray, schwelle: int = 30, anteil: float = 0.6
+) -> bool:
+    """Sieht der Großteil der Stelle, an der die Karte lag, anders aus als bei der Aufnahme?
+
+    Gezählt wird der Anteil veränderter Pixel, nicht der Mittelwert: eine Hand oder
+    ein Lichtreflex verdeckt nur einen Teil, eine weggenommene Karte ändert fast alles.
+    """
+    jetzt = _grau_klein(jetzt_bgr)
+    if jetzt.shape != referenz.shape or not maske.any():
+        return True
+    diff = cv2.absdiff(jetzt, referenz)
+    return float(np.mean(diff[maske] > schwelle)) > anteil
+
+
 class Kamera:
     """Liest Frames, erkennt die Raute live und meldet stabile Karten.
 
@@ -34,12 +73,25 @@ class Kamera:
     Frames, damit die Auswertung über mehrere Bilder abstimmen kann. Danach muss
     die Karte erst wieder aus dem Bild, bevor die nächste Auto-Aufnahme möglich ist.
 
-    ``sperren``: Nach einer Einlaufzeit werden Autofokus, Belichtung und
+    Belichtung und Weißabgleich bleiben standardmäßig automatisch: unter DirectShow
+    meldet die Kamera während der Automatik meist nicht die tatsächliche, sondern
+    eine alte gespeicherte Belichtung – diese festzuhalten ergab überbelichtete
+    Bilder. Beim Öffnen und Beenden werden alle Automatiken wieder eingeschaltet,
+    weil die Kamera „manuell“ sonst über das Programmende hinaus behält.
+
+    ``sperren``: Nach einer Einlaufzeit werden Autofokus (und mit
+    ``belichtung_festhalten`` auch Belichtung und
     Weißabgleich auf den aktuellen Werten festgehalten, damit das Bild nicht
     ständig nachgeregelt wird. Was die Kamera nicht unterstützt, wird übersprungen.
     """
 
     LEER_BIS_FREIGABE = 5  # so viele Frames ohne Karte, bis die Sperre fällt
+    LEER_MIN_S = 0.4  # … und mindestens so lange (bei wenigen Bildern/s)
+    # Belichtung nachregeln (nur wenn festgehalten): abdunkeln, wenn mehr als dieser
+    # Anteil ausbrennt; aufhellen, wenn auf der Karte das hellste Prozent darunter liegt
+    AUSGEBRANNT_MAX = 0.02
+    ZU_DUNKEL_P99 = 130.0
+    BELICHTUNG_PAUSE = 4  # Frames warten, bis ein neuer Wert im Bild wirkt
     EINLAUF_S = 3.0  # Sekunden Automatik, bevor die Werte festgehalten werden
 
     def __init__(
@@ -54,6 +106,10 @@ class Kamera:
         sperren: bool = True,
         fokus: int = -1,
         mjpg: bool = True,
+        bei_entnahme: Callable[[], None] | None = None,
+        belichtung_festhalten: bool = False,
+        belichtung: float | None = None,
+        belichtung_regeln: bool = True,
     ) -> None:
         self.index = index
         self.breite = breite
@@ -66,6 +122,17 @@ class Kamera:
         self.fokus = fokus
         self.mjpg = mjpg
         self.auto_aktiv = True
+        self.bei_entnahme = bei_entnahme
+        self.belichtung_festhalten = belichtung_festhalten
+        # Feste Belichtung vom Bediener (Regler), None = Automatik der Kamera
+        self.belichtung_fest: float | None = belichtung
+        self._belichtung_wunsch: tuple[float | None] | None = None  # im Lesethread anzuwenden
+        self.belichtung_regeln = belichtung_regeln
+        self.belichtung: float | None = None  # aktueller Belichtungswert der Kamera
+        self.ausgebrannt: float = 0.0  # Anteil ausgebrannter Pixel im letzten geprüften Bild
+        self._bel_pause = 0
+        self._bel_geht = True  # False, sobald die Kamera einen gesetzten Wert nicht übernimmt
+        self.entnahmen = 0  # zählt erkannte Entnahmen (für die Oberfläche)
         self.fps: float | None = None  # gemessene Bilder pro Sekunde
 
         self._lock = threading.Lock()
@@ -78,6 +145,10 @@ class Kamera:
         self._stabil = 0
         self._gesperrt = False  # nach Aufnahme bis Karte entfernt
         self._leer = 0
+        self._leer_seit: float | None = None
+        # Aussehen der aufgenommenen Karte (kleines Graubild + Maske ihrer Fläche),
+        # um die Entnahme am Bild statt nur am Verschwinden der Raute zu erkennen
+        self._referenz: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None
         self._laeuft = False
         self._thread: threading.Thread | None = None
         self._dialog = False
@@ -122,6 +193,28 @@ class Kamera:
         """
         self._fokus_wunsch = int(wert)
 
+    def belichtung_setzen(self, wert: float | None) -> None:
+        """Feste Belichtung live setzen, ``None`` = Belichtungsautomatik der Kamera."""
+        self._belichtung_wunsch = (wert,)
+
+    @staticmethod
+    def belichtung_bereich() -> tuple[float, float]:
+        """Regler-Bereich: DirectShow in log2-Sekunden (−8 ≈ 1/256 s), V4L2 in 100 µs."""
+        return (-13.0, -1.0) if sys.platform.startswith("win") else (1.0, 2000.0)
+
+    def _belichtung_anwenden(self, cap: cv2.VideoCapture, wert: float | None) -> None:
+        win = sys.platform.startswith("win")
+        try:
+            if wert is None:
+                cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1 if win else 0.75)
+            else:
+                cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0 if win else 0.25)
+                cap.set(cv2.CAP_PROP_EXPOSURE, wert)
+            self.belichtung = float(cap.get(cv2.CAP_PROP_EXPOSURE))
+        except cv2.error:
+            pass
+        self.belichtung_fest = wert
+
     def status(self) -> dict:
         with self._lock:
             return {
@@ -130,6 +223,11 @@ class Kamera:
                 "karte_erkannt": self._ecken is not None,
                 "stabil": min(1.0, self._stabil / max(1, self.stabile_frames)),
                 "wartet_auf_neue_karte": self._gesperrt,
+                "entnahmen": self.entnahmen,
+                "belichtung": self.belichtung,
+                "belichtung_fest": self.belichtung_fest,
+                "belichtung_bereich": self.belichtung_bereich(),
+                "ausgebrannt": round(self.ausgebrannt, 3),
                 "auto_aktiv": self.auto_aktiv,
                 "festgehalten": dict(self.festgehalten),
                 "fokus": self.fokus_aktuell,
@@ -187,7 +285,27 @@ class Kamera:
             cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # kein Rückstau alter Bilder
         except cv2.error:
             pass
+        self._automatik_an(cap, fokus=self.fokus < 0)
+        if self.belichtung_fest is not None:
+            self._belichtung_anwenden(cap, self.belichtung_fest)
         return cap
+
+    @staticmethod
+    def _automatik_an(cap: cv2.VideoCapture, fokus: bool = True) -> None:
+        """Belichtung, Weißabgleich (und Fokus) der Kamera wieder automatisch regeln lassen.
+
+        Die Kamera speichert diese Einstellungen im Gerät; ohne Rücksetzen bliebe sie nach
+        einem Programmlauf auf festen Werten stehen.
+        """
+        auto = 1 if sys.platform.startswith("win") else 0.75  # DirectShow: 1 = Auto; V4L2: 0,75 = Auto
+        werte = [(cv2.CAP_PROP_AUTO_EXPOSURE, auto), (cv2.CAP_PROP_AUTO_WB, 1)]
+        if fokus:
+            werte.append((cv2.CAP_PROP_AUTOFOCUS, 1))
+        for prop, wert in werte:
+            try:
+                cap.set(prop, wert)
+            except cv2.error:
+                pass
 
     def _festhalten(self, cap: cv2.VideoCapture) -> None:
         """Automatiken abschalten und die gerade eingeregelten Werte behalten."""
@@ -202,6 +320,9 @@ class Kamera:
         fokus = self.fokus if self.fokus >= 0 else cap.get(cv2.CAP_PROP_FOCUS)
         erg["fokus"] = setze(cv2.CAP_PROP_AUTOFOCUS, 0) | setze(cv2.CAP_PROP_FOCUS, fokus)
         self.autofokus = not erg["fokus"]
+        if not self.belichtung_festhalten or self.belichtung_fest is not None:
+            self.festgehalten = erg
+            return
         belichtung = cap.get(cv2.CAP_PROP_EXPOSURE)
         # DirectShow schaltet beim Setzen eines Werts auf manuell, V4L2 braucht AUTO_EXPOSURE=1/0.25
         manuell = 0.25 if not sys.platform.startswith("win") else 0
@@ -231,6 +352,51 @@ class Kamera:
             self.fokus_aktuell = float(cap.get(cv2.CAP_PROP_FOCUS))
         except cv2.error:
             self.fokus_aktuell = None
+
+    def _belichtung_pruefen(self, cap: cv2.VideoCapture, frame: np.ndarray, karte_da: bool) -> None:
+        """Festgehaltene Belichtung nachführen, z. B. wenn das Ringlicht eingeschaltet wird."""
+        if self._bel_pause > 0:
+            self._bel_pause -= 1
+            return
+        aus, p99 = helligkeit(frame)
+        self.ausgebrannt = aus
+        if not (self.belichtung_regeln and self._bel_geht and self.festgehalten.get("belichtung")):
+            return
+        dunkler = aus > self.AUSGEBRANNT_MAX
+        heller = karte_da and p99 < self.ZU_DUNKEL_P99  # ohne Karte nicht aufhellen (dunkle Unterlage)
+        if not (dunkler or heller):
+            return
+        try:
+            alt = float(cap.get(cv2.CAP_PROP_EXPOSURE))
+            neu = naechste_belichtung(alt, dunkler)
+            if neu == alt:
+                return
+            cap.set(cv2.CAP_PROP_EXPOSURE, neu)
+            gelesen = float(cap.get(cv2.CAP_PROP_EXPOSURE))
+        except cv2.error:
+            self._bel_geht = False
+            return
+        if gelesen == alt:  # Kamera übernimmt keine Belichtungswerte
+            self._bel_geht = False
+            return
+        self.belichtung = gelesen
+        self._bel_pause = self.BELICHTUNG_PAUSE
+
+    def _merke_karte(self, frame: np.ndarray, ecken: np.ndarray) -> None:
+        g = _grau_klein(frame)
+        f = g.shape[1] / frame.shape[1]
+        maske = np.zeros(g.shape, np.uint8)
+        cv2.fillConvexPoly(maske, np.round(ecken * f).astype(np.int32), 1)
+        self._referenz = (g, maske.astype(bool), ecken.copy())
+
+    def _entnommen(self, frame: np.ndarray, ecken: np.ndarray | None) -> bool:
+        """Karte gilt als weg, wenn die Raute fehlt oder woanders liegt UND die Stelle anders aussieht."""
+        if self._referenz is None:
+            return ecken is None
+        ref, maske, ref_ecken = self._referenz
+        if ecken is not None and ecken_ruhig(ecken, ref_ecken, 0.05):
+            return False  # liegt noch da
+        return karte_entfernt(ref, maske, frame)
 
     def _glaetten(self, ecken: np.ndarray | None) -> None:
         if ecken is None:
@@ -262,6 +428,9 @@ class Kamera:
                     cap.set(cv2.CAP_PROP_SETTINGS, 1)
                 except cv2.error:
                     pass
+            if self._belichtung_wunsch is not None:
+                (bel,), self._belichtung_wunsch = self._belichtung_wunsch, None
+                self._belichtung_anwenden(cap, bel)
             if self._fokus_wunsch is not None:
                 wunsch, self._fokus_wunsch = self._fokus_wunsch, None
                 if self._fokus_anwenden(cap, wunsch):
@@ -290,20 +459,35 @@ class Kamera:
                 festgehalten = True
                 self._fokus_lesen(cap)
             ecken = schnell_ecken(frame)
+            if festgehalten and n % 3 == 0:
+                self._belichtung_pruefen(cap, frame, ecken is not None)
             fertig: list[np.ndarray] | None = None
+            entnommen = False
             with self._lock:
                 self._frame = frame
                 self._frame_nr += 1
                 self._ecken = ecken
                 self._glaetten(ecken)
+                if self._gesperrt:
+                    # nach einer Aufnahme: erst weiter, wenn die Karte wirklich weg ist
+                    if self._entnommen(frame, ecken):
+                        self._leer += 1
+                        self._leer_seit = self._leer_seit or jetzt
+                        if self._leer >= self.LEER_BIS_FREIGABE and jetzt - self._leer_seit >= self.LEER_MIN_S:
+                            self._gesperrt = False
+                            self._referenz = None
+                            self.entnahmen += 1
+                            entnommen = True
+                    else:
+                        self._leer = 0
+                        self._leer_seit = None
                 if ecken is None:
-                    self._leer += 1
                     self._stabil = 0
                     self._ruhig.clear()
-                    if self._leer >= self.LEER_BIS_FREIGABE:
-                        self._gesperrt = False
                 else:
-                    self._leer = 0
+                    if not self._gesperrt:
+                        self._leer = 0
+                        self._leer_seit = None
                     if ecken_ruhig(ecken, letzte, self.toleranz_rel):
                         self._stabil += 1
                     else:
@@ -312,11 +496,20 @@ class Kamera:
                     self._ruhig.append(frame)
                     if self.auto_aktiv and not self._gesperrt and self._stabil >= self.stabile_frames:
                         self._gesperrt = True
+                        self._leer = 0
+                        self._leer_seit = None
+                        self._merke_karte(frame, ecken)
                         fertig = [f.copy() for f in self._ruhig]
             letzte = ecken
+            if entnommen and self.bei_entnahme:
+                try:
+                    self.bei_entnahme()
+                except Exception as e:
+                    self.fehler = f"Entnahme: {e}"
             if fertig:
                 try:
                     self.bei_aufnahme(fertig)
                 except Exception as e:  # Auswertung darf die Kamera nicht stoppen
                     self.fehler = f"Auswertung fehlgeschlagen: {e}"
+        self._automatik_an(cap)  # Kamera nicht verstellt zurücklassen
         cap.release()

@@ -261,3 +261,15 @@ def test_anriss_toleranz_wertet_entwurf_neu(tmp_path):
 def test_anriss_toleranz_ohne_entwurf(tmp_path):
     r = client(tmp_path).post("/api/anriss-toleranz", json={"wert": -0.2})
     assert r.status_code == 200 and r.json()["entwurf"] is None
+
+
+def test_belichtung_ohne_kamera(tmp_path):
+    c = client(tmp_path)
+    assert c.post("/api/kamera/belichtung", json={"wert": None}).status_code == 409
+    assert c.post("/api/kamera/belichtung", json={"wert": 99999}).status_code == 400
+
+
+def test_belichtung_einstellung_leer_heisst_auto():
+    from labinett.config import wert_umwandeln
+
+    assert wert_umwandeln(None, "-8") == -8.0 and wert_umwandeln(None, "") is None

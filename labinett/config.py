@@ -41,10 +41,20 @@ class Einstellungen:
     stabil_toleranz: float = 0.01
     # So viele ruhige Frames werden ausgewertet und abgestimmt
     aufnahme_bilder: int = 3
-    # Autofokus, Belichtung, Weißabgleich nach dem Start festhalten
+    # Autofokus nach dem Start festhalten (Belichtung nur mit belichtung_festhalten)
     kamera_festhalten: bool = True
     # Fester Fokuswert (kameraabhängig), -1 = eingeregelten Wert übernehmen
     kamera_fokus: int = -1
+    # Feste Belichtung (Regler in der Oberfläche), None = Automatik der Kamera.
+    # Windows/DirectShow: log2-Sekunden, z. B. -8 ≈ 1/256 s (bei Ringlicht passend)
+    kamera_belichtung: float | None = None
+    # Auch Belichtung und Weißabgleich festhalten. Aus: unter Windows melden viele Webcams
+    # eine falsche Belichtung, festgehalten wird das Bild dann überbelichtet.
+    belichtung_festhalten: bool = False
+    # Festgehaltene Belichtung nachregeln, wenn das Bild ausbrennt (z. B. Ringlicht eingeschaltet)
+    belichtung_regeln: bool = True
+    # Ergebnis automatisch speichern, sobald die Karte weggenommen wird (nur wenn nichts zu prüfen ist)
+    beim_entnehmen_speichern: bool = False
     # Webcam im MJPG-Format öffnen: viele USB-Kameras liefern 1080p sonst nur mit ~5 Bildern/s
     kamera_mjpg: bool = True
     # Schützennummer erfassen (Ausschnitt anzeigen, Eingabe verlangen); False = ohne Nummer speichern
@@ -89,6 +99,8 @@ class Einstellungen:
 
 def wert_umwandeln(alt: object, neu: object) -> object:
     """Wert aus der Oberfläche in den Typ der Einstellung bringen (auch "false" → False)."""
+    if alt is None:  # optionale Zahl, z. B. kamera_belichtung: leer = None
+        return None if neu in (None, "") else float(neu)
     if isinstance(alt, bool):
         if isinstance(neu, str):
             t = neu.strip().lower()

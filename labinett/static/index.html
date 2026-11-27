@@ -39,6 +39,9 @@
   .einst { display:grid; grid-template-columns: 1fr minmax(110px, 260px); gap:6px 10px; align-items:center; margin-top:8px; }
   .einst input { font:inherit; padding:3px 5px; }
   #ergebnisse td, #ergebnisse th { font-size:13px; }
+  .zustand { padding:8px 12px; border-radius:6px; margin-bottom:10px; font-weight:600; }
+  .zustand.liegt { background:#fff3e0; color:var(--warn); }
+  .zustand.weg { background:#e6f4ea; color:var(--ok); }
   .anriss { display:flex; gap:8px; align-items:center; flex-wrap:wrap; font-size:13px; color:var(--grau); margin-bottom:10px; }
   .anriss input[type=range] { flex:1; min-width:140px; }
   .anriss output { min-width:64px; font-variant-numeric:tabular-nums; color:var(--text); }
@@ -66,6 +69,12 @@
       <input type="number" id="fokuszahl" min="0" max="4095" style="width:70px;font:inherit;padding:3px 5px">
       <button id="btnAutofokus" title="Autofokus kurz arbeiten lassen und den Wert dann festhalten">Autofokus</button>
     </div>
+    <div class="leiste" id="belichtungsleiste" title="Belichtungszeit der Webcam – bei Ringlicht kürzer stellen (z. B. −8). Wirkt sofort und wird gespeichert.">
+      <label for="belichtung">Belichtung</label>
+      <input type="range" id="belichtung" min="-13" max="-1" step="1" style="flex:1;min-width:120px">
+      <input type="number" id="belichtungzahl" style="width:70px;font:inherit;padding:3px 5px">
+      <button id="btnAutobelichtung" title="Belichtung wieder der Kamera überlassen">Auto</button>
+    </div>
     <p id="kamerainfo" class="hinweis"></p>
 
     <h2 style="margin-top:18px">Letzte Ergebnisse</h2>
@@ -92,6 +101,7 @@
       <output id="anrisswert">0,00 mm</output>
       <button id="btnAnrissNull" title="Auf 0 zurücksetzen">0</button>
     </div>
+    <div id="kartenzustand" class="zustand" hidden></div>
     <div id="inhalt" class="leer">Karte unter die Kamera legen – die Aufnahme startet automatisch, sobald sie ruhig liegt.</div>
   </section>
 </main>
@@ -233,6 +243,32 @@ $('fokus').oninput = () => { $('fokuszahl').value = $('fokus').value; fokusSende
 $('fokuszahl').onchange = () => { const w = Math.max(0, Math.round(+$('fokuszahl').value || 0)); fokusAnzeigen(w); fokusSenden(w); };
 $('btnAutofokus').onclick = () => fokusSenden(-1);
 
+// ---- Belichtung: wie Fokus, null = Automatik der Kamera
+let belichtungBedient = 0;
+let belichtungTimer = null;
+function belichtungSenden(wert) {
+  belichtungBedient = Date.now();
+  clearTimeout(belichtungTimer);
+  belichtungTimer = setTimeout(async () => {
+    try { await api('/api/kamera/belichtung', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({wert})}); }
+    catch (err) { $('kamerainfo').textContent = err.message; }
+  }, 150);
+}
+$('belichtung').oninput = () => { $('belichtungzahl').value = $('belichtung').value; belichtungSenden(+$('belichtung').value); };
+$('belichtungzahl').onchange = () => {
+  const w = Math.min(+$('belichtung').max, Math.max(+$('belichtung').min, Math.round(+$('belichtungzahl').value || 0)));
+  $('belichtung').value = w; $('belichtungzahl').value = w; belichtungSenden(w);
+};
+$('btnAutobelichtung').onclick = () => belichtungSenden(null);
+function belichtungAnzeigen(k) {
+  const [lo, hi] = k.belichtung_bereich || [-13, -1];
+  $('belichtung').min = lo; $('belichtung').max = hi;
+  $('btnAutobelichtung').classList.toggle('primaer', k.belichtung_fest == null);
+  if (Date.now() - belichtungBedient < 2000 || document.activeElement === $('belichtungzahl')) return;
+  const w = k.belichtung_fest ?? k.belichtung;
+  if (w != null) { $('belichtung').value = w; $('belichtungzahl').value = Math.round(w); }
+}
+
 // ---- Anriss-Toleranz: Regler wertet den offenen Entwurf sofort neu
 let anrissTimer = null;
 const mmText = (w) => (w > 0 ? '+' : '') + w.toFixed(2).replace('.', ',') + ' mm';
@@ -273,9 +309,17 @@ async function poll() {
     else if (!offen && csvWarteteVorher) { csvWarteteVorher = false; ladeErgebnisse(); }
     $('kamerainfo').textContent = k.fehler && k.fehler !== 'deaktiviert' ? k.fehler : (s.meldung || (k.wartet_auf_neue_karte ? 'Aufgenommen – Karte wegnehmen für die nächste.' : ''));
     $('fokusleiste').hidden = !k.kamera_ok;
+    $('belichtungsleiste').hidden = !k.kamera_ok;
+    if (k.kamera_ok) belichtungAnzeigen(k);
     if (k.fokus != null && k.fokus >= 0 && Date.now() - fokusBedient > 2000 && document.activeElement !== $('fokuszahl')) fokusAnzeigen(Math.round(k.fokus));
     $('btnAutofokus').classList.toggle('primaer', !!k.autofokus);
     $('stabil').style.width = Math.round((k.stabil || 0) * 100) + '%';
+    if ((k.ausgebrannt || 0) > 0.05 && !k.fehler) {
+      const regelt = k.festgehalten && k.festgehalten.belichtung;
+      $('kamerainfo').textContent = 'Bild überbelichtet' + (regelt && k.belichtung != null ? ` (Belichtung ${k.belichtung}) – wird nachgeregelt` : '') +
+        ' – Regler „Belichtung“ nach links schieben (z. B. −8).';
+    }
+    kartenzustand(k);
     if (k.kamera_ok && !streamGestartet) { $('live').src = '/stream.mjpg'; $('live').hidden = false; $('keinekamera').hidden = true; streamGestartet = true; }
     if (s.entwurf && s.entwurf.id !== aktuellerEntwurf) {
       aktuellerEntwurf = s.entwurf.id;
@@ -284,6 +328,26 @@ async function poll() {
     }
   } catch (_) { $('kopfstatus').textContent = 'Verbindung zum Programm verloren'; }
   setTimeout(poll, 150);  // kurz halten: neue Auswertung erscheint sonst spürbar verzögert
+}
+
+// ---- Karte liegt / wurde weggenommen
+let letzteEntnahmen = null;
+function kartenzustand(k) {
+  const z = $('kartenzustand');
+  const entnommen = letzteEntnahmen !== null && k.entnahmen > letzteEntnahmen;
+  letzteEntnahmen = k.entnahmen ?? letzteEntnahmen;
+  if (entnommen && $('btnSpeichern')) {
+    const zuPruefen = document.querySelector('#schuesse tr.unsicher') || $('inhalt').querySelector('.hinweis');
+    if (einstellungen.beim_entnehmen_speichern && !zuPruefen) { speichern(); z.textContent = 'Karte weggenommen – Ergebnis gespeichert.'; }
+    else z.textContent = 'Karte weggenommen – Ergebnis noch prüfen und mit Enter speichern.';
+    z.className = 'zustand weg'; z.hidden = false;
+  } else if (entnommen) {
+    z.textContent = 'Karte weggenommen – bereit für die nächste.'; z.className = 'zustand weg'; z.hidden = false;
+  } else if (k.wartet_auf_neue_karte) {
+    z.textContent = 'Aufgenommen – Karte jetzt wegnehmen.'; z.className = 'zustand liegt'; z.hidden = false;
+  } else if (k.karte_erkannt && z.classList.contains('weg')) {
+    z.hidden = true;  // nächste Karte liegt
+  }
 }
 
 async function ladeErgebnisse() {
@@ -301,7 +365,10 @@ const EINST = [
   ['nummern_sammeln', 'Nummern-Ausschnitte sammeln (Ordner „nummern“)', 'ja'],
   ['nummer_min', 'Schützennummer von'], ['nummer_max', 'Schützennummer bis'],
   ['kamera_index', 'Kamera-Nr.'], ['kamera_mjpg', 'MJPG-Format (mehr Bilder/s)', 'ja'],
-  ['kamera_festhalten', 'Fokus/Belichtung festhalten', 'ja'],
+  ['kamera_festhalten', 'Fokus festhalten', 'ja'],
+  ['belichtung_festhalten', 'Auch Belichtung/Weißabgleich festhalten (kann überbelichten)', 'ja'],
+  ['belichtung_regeln', 'Festgehaltene Belichtung nachregeln, wenn das Bild ausbrennt', 'ja'],
+  ['beim_entnehmen_speichern', 'Beim Wegnehmen der Karte automatisch speichern (nur ohne „prüfen“)', 'ja'],
   ['kamera_fokus', 'Fester Fokus (−1 = automatisch ermittelt, Regler oben wirkt sofort)'],
   ['stabile_frames', 'Ruhe-Frames bis Aufnahme'], ['stabil_toleranz', 'Ruhe-Toleranz (Anteil der Raute)'],
   ['aufnahme_bilder', 'Bilder je Aufnahme (Abstimmung)'],
@@ -309,8 +376,10 @@ const EINST = [
   ['auto_update', 'Beim Start nach Updates suchen', 'ja'],
 ];
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+let einstellungen = {};
 async function ladeEinstellungen() {
   const e = await api('/api/einstellungen');
+  einstellungen = e;
   anrissAnzeigen(e.anriss_toleranz_mm || 0);
   $('einst').innerHTML = EINST.map(([k, l, typ]) => typ === 'ja'
     ? `<label for="e_${k}">${l}</label><input id="e_${k}" type="checkbox" ${e[k] ? 'checked' : ''} style="justify-self:start">`
@@ -330,7 +399,7 @@ $('btnTreiber').onclick = async () => {
 };
 $('btnEinst').onclick = async () => {
   const daten = Object.fromEntries(EINST.map(([k, , typ]) => [k, typ === 'ja' ? $('e_' + k).checked : $('e_' + k).value]));
-  try { const r = await api('/api/einstellungen', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(daten)}); $('einstinfo').textContent = r.hinweis; }
+  try { const r = await api('/api/einstellungen', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(daten)}); $('einstinfo').textContent = r.hinweis; Object.assign(einstellungen, daten); }
   catch (err) { $('einstinfo').textContent = err.message; }
 };
 
