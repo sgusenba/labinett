@@ -1,5 +1,6 @@
 """Auto-Aufnahme mit simulierter Kamera."""
 
+import sys
 import threading
 import time
 from pathlib import Path
@@ -11,6 +12,10 @@ from labinett.erkennung import schnell_ecken
 from labinett.kamera import Kamera, ecken_ruhig
 
 TESTDATA = Path(__file__).resolve().parent.parent / "testdata"
+
+# Werte für CAP_PROP_AUTO_EXPOSURE: DirectShow (Windows) 1/0, V4L2 0,75/0,25
+WIN = sys.platform.startswith("win")
+AUTO, MANUELL = (1, 0) if WIN else (0.75, 0.25)
 
 
 class FakeCap:
@@ -113,8 +118,8 @@ def test_belichtung_bleibt_standardmaessig_automatisch(monkeypatch):
     k.stop()
     props = [p for p, _ in cap.protokoll]
     assert cv2.CAP_PROP_EXPOSURE not in props  # Belichtung nie gesetzt
-    assert (cv2.CAP_PROP_AUTO_EXPOSURE, 0.75) in cap.protokoll[:10]  # beim Öffnen: Automatik an
-    assert cap.protokoll[-3:] == [(cv2.CAP_PROP_AUTO_EXPOSURE, 0.75), (cv2.CAP_PROP_AUTO_WB, 1), (cv2.CAP_PROP_AUTOFOCUS, 1)]
+    assert (cv2.CAP_PROP_AUTO_EXPOSURE, AUTO) in cap.protokoll[:10]  # beim Öffnen: Automatik an
+    assert cap.protokoll[-3:] == [(cv2.CAP_PROP_AUTO_EXPOSURE, AUTO), (cv2.CAP_PROP_AUTO_WB, 1), (cv2.CAP_PROP_AUTOFOCUS, 1)]
     assert cap.gesetzt[cv2.CAP_PROP_FOCUS] == 17
     assert "belichtung" not in k.status()["festgehalten"]
 
@@ -261,12 +266,12 @@ def test_feste_belichtung(monkeypatch):
     try:
         time.sleep(0.2)
         assert cap.gesetzt[cv2.CAP_PROP_EXPOSURE] == -8
-        assert cap.gesetzt[cv2.CAP_PROP_AUTO_EXPOSURE] == 0.25  # manuell (Linux-Wert im Test)
+        assert cap.gesetzt[cv2.CAP_PROP_AUTO_EXPOSURE] == MANUELL
         k.belichtung_setzen(-9)
         time.sleep(0.2)
         assert cap.gesetzt[cv2.CAP_PROP_EXPOSURE] == -9 and k.status()["belichtung_fest"] == -9
         k.belichtung_setzen(None)
         time.sleep(0.2)
-        assert cap.gesetzt[cv2.CAP_PROP_AUTO_EXPOSURE] == 0.75 and k.status()["belichtung_fest"] is None
+        assert cap.gesetzt[cv2.CAP_PROP_AUTO_EXPOSURE] == AUTO and k.status()["belichtung_fest"] is None
     finally:
         k.stop()
