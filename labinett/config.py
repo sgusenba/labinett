@@ -53,6 +53,9 @@ class Einstellungen:
     belichtung_festhalten: bool = False
     # Festgehaltene Belichtung nachregeln, wenn das Bild ausbrennt (z. B. Ringlicht eingeschaltet)
     belichtung_regeln: bool = True
+    # Brennt das Bild unter Kamera-Automatik aus (weiße Karte auf dunkler Unterlage),
+    # selbst einen festen Belichtungswert einmessen und als kamera_belichtung speichern
+    belichtung_einmessen: bool = True
     # Ergebnis automatisch speichern, sobald die Karte weggenommen wird (nur wenn nichts zu prüfen ist)
     beim_entnehmen_speichern: bool = False
     # Webcam im MJPG-Format öffnen: viele USB-Kameras liefern 1080p sonst nur mit ~5 Bildern/s

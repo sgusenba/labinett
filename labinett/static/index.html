@@ -74,6 +74,7 @@
       <input type="range" id="belichtung" min="-13" max="-1" step="1" style="flex:1;min-width:120px">
       <input type="number" id="belichtungzahl" style="width:70px;font:inherit;padding:3px 5px">
       <button id="btnAutobelichtung" title="Belichtung wieder der Kamera überlassen">Auto</button>
+      <button id="btnEinmessen" title="Karte auflegen, dann klicken: dunkelt ab, bis nichts mehr ausbrennt, und speichert den Wert">Einmessen</button>
     </div>
     <p id="kamerainfo" class="hinweis"></p>
 
@@ -260,6 +261,9 @@ $('belichtungzahl').onchange = () => {
   $('belichtung').value = w; $('belichtungzahl').value = w; belichtungSenden(w);
 };
 $('btnAutobelichtung').onclick = () => belichtungSenden(null);
+$('btnEinmessen').onclick = async () => {
+  try { await api('/api/kamera/einmessen', {method: 'POST'}); } catch (err) { $('kamerainfo').textContent = err.message; }
+};
 function belichtungAnzeigen(k) {
   const [lo, hi] = k.belichtung_bereich || [-13, -1];
   $('belichtung').min = lo; $('belichtung').max = hi;
@@ -314,10 +318,15 @@ async function poll() {
     if (k.fokus != null && k.fokus >= 0 && Date.now() - fokusBedient > 2000 && document.activeElement !== $('fokuszahl')) fokusAnzeigen(Math.round(k.fokus));
     $('btnAutofokus').classList.toggle('primaer', !!k.autofokus);
     $('stabil').style.width = Math.round((k.stabil || 0) * 100) + '%';
-    if ((k.ausgebrannt || 0) > 0.05 && !k.fehler) {
+    $('btnEinmessen').disabled = !!k.einmessen;
+    if (k.einmessen) {
+      $('kamerainfo').textContent = k.einmess_meldung || 'Belichtung wird eingemessen …';
+    } else if ((k.ausgebrannt || 0) > 0.05 && !k.fehler) {
       const regelt = k.festgehalten && k.festgehalten.belichtung;
       $('kamerainfo').textContent = 'Bild überbelichtet' + (regelt && k.belichtung != null ? ` (Belichtung ${k.belichtung}) – wird nachgeregelt` : '') +
-        ' – Regler „Belichtung“ nach links schieben (z. B. −8).';
+        ' – Karte auflegen und „Einmessen“ klicken oder Regler „Belichtung“ nach links schieben.';
+    } else if (k.einmess_meldung && !k.fehler && !s.meldung && !k.wartet_auf_neue_karte) {
+      $('kamerainfo').textContent = k.einmess_meldung;
     }
     kartenzustand(k);
     if (k.kamera_ok && !streamGestartet) { $('live').src = '/stream.mjpg'; $('live').hidden = false; $('keinekamera').hidden = true; streamGestartet = true; }
@@ -368,6 +377,7 @@ const EINST = [
   ['kamera_festhalten', 'Fokus festhalten', 'ja'],
   ['belichtung_festhalten', 'Auch Belichtung/Weißabgleich festhalten (kann überbelichten)', 'ja'],
   ['belichtung_regeln', 'Festgehaltene Belichtung nachregeln, wenn das Bild ausbrennt', 'ja'],
+  ['belichtung_einmessen', 'Bei Überbelichtung automatisch einmessen (Wert wird gespeichert)', 'ja'],
   ['beim_entnehmen_speichern', 'Beim Wegnehmen der Karte automatisch speichern (nur ohne „prüfen“)', 'ja'],
   ['kamera_fokus', 'Fester Fokus (−1 = automatisch ermittelt, Regler oben wirkt sofort)'],
   ['stabile_frames', 'Ruhe-Frames bis Aufnahme'], ['stabil_toleranz', 'Ruhe-Toleranz (Anteil der Raute)'],

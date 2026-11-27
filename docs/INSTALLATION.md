@@ -112,6 +112,7 @@ freigibt. Für einen Zwischenstand trotzdem besser eine Kopie öffnen.
 | Viele Schüsse orange | Bild scharf? Kamera senkrecht über der Karte? Hinweis „Kartengröße passt nicht zum Raster“ → Raute falsch erkannt, Karte gerade hinlegen und neu aufnehmen. |
 | „Port 8765 ist belegt“ | labinett läuft schon – das andere Konsolenfenster benutzen oder schließen. |
 | „… Ergebnis(se) warten“ | Die CSV ist in Excel geöffnet oder der Speicherort (USB-Stick, Netzlaufwerk) fehlt. Excel schließen bzw. Ziel wieder anstecken – die Ergebnisse werden innerhalb weniger Sekunden nachgetragen. |
+| Bild überbelichtet, Linien/Löcher ausgebrannt | Karte auflegen und neben dem Belichtungsregler **Einmessen** klicken – labinett dunkelt ab, bis nichts mehr ausbrennt, und speichert den Wert. Passiert beim ersten Überbelichten auch automatisch. |
 | Bild wird nach einiger Zeit unscharf oder zu dunkel | **Kamera-Treiber …** öffnen und Fokus/Belichtung von Hand einstellen, oder „Fokus/Belichtung festhalten“ ausschalten. |
 | „Schützennummer muss zwischen 1 und 250 liegen“ | Nummer prüfen; bei anderem Bereich in den Einstellungen „Schützennummer von/bis“ anpassen. |
 | Browser geht nicht auf | Manuell <http://127.0.0.1:8765/> öffnen. |

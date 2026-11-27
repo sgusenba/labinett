@@ -57,6 +57,7 @@ Diese Werte stehen fest in `labinett/scheibe.py` und sind nicht einstellbar.
 | `kamera_festhalten` | true | Fokus nach 3 s festhalten |
 | `kamera_belichtung` | null | feste Belichtung (Regler „Belichtung“ unter dem Kamerabild, wirkt sofort); `null` = Automatik. Windows: log2-Sekunden, bei Ringlicht z. B. −8 |
 | `belichtung_festhalten` | false | auch Belichtung und Weißabgleich festhalten. Aus lassen: unter Windows melden viele Webcams eine falsche Belichtung, das Bild wird dann überbelichtet. Beim Start und Beenden schaltet labinett die Automatiken der Kamera wieder ein |
+| `belichtung_einmessen` | true | brennt das Bild unter der Kamera-Automatik mit aufgelegter Karte aus (weiße Karte auf dunkler Unterlage, Ringlicht), misst labinett einmal je Start selbst einen festen Wert ein: so lange dunkler, bis höchstens 2 % ausbrennen. Der Wert landet in `kamera_belichtung`. Von Hand jederzeit mit **Einmessen** neben dem Belichtungsregler |
 | `kamera_fokus` | -1 | fester Fokuswert der Webcam, -1 = eingeregelten Wert übernehmen (Regler in der Oberfläche setzt ihn live) |
 | `nummer_erfassen` | false | Schützennummer abfragen; `false` = ohne Nummer speichern, kein „prüfen“ wegen fehlender Nummer |
 | `nummer_min` / `nummer_max` | 1 / 250 | gültige Schützennummern |
