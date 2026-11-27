@@ -85,11 +85,38 @@ def test_auto_aufnahme_einmal_pro_karte():
 def test_kamera_werte_festhalten(monkeypatch):
     karte = cv2.imread(str(TESTDATA / "nikolo_04.jpg"))
     monkeypatch.setattr(Kamera, "EINLAUF_S", 0.0)
-    _, k, cap = _laufen([karte] * 20, warte_s=1.5, sperren=True, fokus=17)
-    assert cap.gesetzt[cv2.CAP_PROP_AUTOFOCUS] == 0
+    _, k, cap = _laufen([karte] * 20, warte_s=1.5, sperren=True, fokus=17, belichtung_festhalten=True)
     assert cap.gesetzt[cv2.CAP_PROP_FOCUS] == 17
     assert cap.gesetzt[cv2.CAP_PROP_EXPOSURE] == 42.0
     assert k.status()["festgehalten"]["fokus"] is True
+
+
+class ProtokollCap(FakeCap):
+    def __init__(self, frames):
+        super().__init__(frames)
+        self.protokoll = []
+
+    def set(self, prop, wert):
+        self.protokoll.append((prop, wert))
+        return super().set(prop, wert)
+
+
+def test_belichtung_bleibt_standardmaessig_automatisch(monkeypatch):
+    """Nur der Fokus wird festgehalten; Automatiken beim Öffnen und Beenden wieder an."""
+    monkeypatch.setattr(Kamera, "EINLAUF_S", 0.0)
+    karte = cv2.imread(str(TESTDATA / "nikolo_04.jpg"))
+    cap = ProtokollCap([karte] * 50)
+    k = Kamera(0, 640, 480, stabile_frames=5, bei_aufnahme=lambda b: None, sperren=True, fokus=17)
+    monkeypatch.setattr(cv2, "VideoCapture", lambda *a: cap)
+    k.start()
+    time.sleep(0.5)
+    k.stop()
+    props = [p for p, _ in cap.protokoll]
+    assert cv2.CAP_PROP_EXPOSURE not in props  # Belichtung nie gesetzt
+    assert (cv2.CAP_PROP_AUTO_EXPOSURE, 0.75) in cap.protokoll[:10]  # beim Öffnen: Automatik an
+    assert cap.protokoll[-3:] == [(cv2.CAP_PROP_AUTO_EXPOSURE, 0.75), (cv2.CAP_PROP_AUTO_WB, 1), (cv2.CAP_PROP_AUTOFOCUS, 1)]
+    assert cap.gesetzt[cv2.CAP_PROP_FOCUS] == 17
+    assert "belichtung" not in k.status()["festgehalten"]
 
 
 def test_fokus_live_setzen(monkeypatch):
@@ -209,7 +236,7 @@ def test_belichtung_wird_bei_ueberbelichtung_reduziert(monkeypatch):
     monkeypatch.setattr(Kamera, "EINLAUF_S", 0.0)
     karte = cv2.imread(str(TESTDATA / "nikolo_04.jpg"))
     cap = HelleCap(karte)
-    k = Kamera(0, 640, 480, stabile_frames=5, bei_aufnahme=lambda b: None, sperren=True)
+    k = Kamera(0, 640, 480, stabile_frames=5, bei_aufnahme=lambda b: None, sperren=True, belichtung_festhalten=True)
     k._oeffnen = lambda: cap
     k.start()
     try:

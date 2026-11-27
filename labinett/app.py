@@ -309,6 +309,7 @@ def erstelle_app(
             fokus=einst.kamera_fokus,
             mjpg=einst.kamera_mjpg,
             belichtung_regeln=einst.belichtung_regeln,
+            belichtung_festhalten=einst.belichtung_festhalten,
         )
 
         @app.on_event("startup")

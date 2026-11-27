@@ -50,11 +50,12 @@ Diese Werte stehen fest in `labinett/scheibe.py` und sind nicht einstellbar.
 | `anriss_toleranz_mm` | 0.0 | Anriss-Toleranz: verschiebt die Berührungsgrenze (−0,8 … +1,6 mm; negativ = strenger, positiv = großzügiger). Regler über der Auswertung, wertet die angezeigte Karte sofort neu |
 | `stabile_frames` | 8 | Ruhe-Frames bis zur Auto-Aufnahme |
 | `stabil_toleranz` | 0.01 | „ruhig“ = keine Rautenecke bewegt sich mehr als dieser Anteil der Diagonale |
-| `belichtung_regeln` | true | festgehaltene Belichtung schrittweise kürzen, wenn mehr als 2 % des Bildes ausbrennen (z. B. Ringlicht nach dem Start eingeschaltet), bzw. verlängern, wenn eine liegende Karte zu dunkel ist |
+| `belichtung_regeln` | true | nur mit `belichtung_festhalten`: festgehaltene Belichtung schrittweise kürzen, wenn mehr als 2 % des Bildes ausbrennen (z. B. Ringlicht nach dem Start eingeschaltet), bzw. verlängern, wenn eine liegende Karte zu dunkel ist |
 | `beim_entnehmen_speichern` | false | Ergebnis automatisch speichern, sobald die Karte weggenommen wird – nur wenn nichts zu prüfen ist |
 | `aufnahme_bilder` | 3 | so viele ruhige Bilder werden ausgewertet; die Mehrheit zählt, Abweichungen werden markiert |
 | `kamera_mjpg` | true | Webcam im MJPG-Format öffnen (Full HD mit 30 statt oft nur 5 Bildern/s) |
-| `kamera_festhalten` | true | Fokus, Belichtung, Weißabgleich nach 3 s festhalten |
+| `kamera_festhalten` | true | Fokus nach 3 s festhalten |
+| `belichtung_festhalten` | false | auch Belichtung und Weißabgleich festhalten. Aus lassen: unter Windows melden viele Webcams eine falsche Belichtung, das Bild wird dann überbelichtet. Beim Start und Beenden schaltet labinett die Automatiken der Kamera wieder ein |
 | `kamera_fokus` | -1 | fester Fokuswert der Webcam, -1 = eingeregelten Wert übernehmen (Regler in der Oberfläche setzt ihn live) |
 | `nummer_erfassen` | false | Schützennummer abfragen; `false` = ohne Nummer speichern, kein „prüfen“ wegen fehlender Nummer |
 | `nummer_min` / `nummer_max` | 1 / 250 | gültige Schützennummern |

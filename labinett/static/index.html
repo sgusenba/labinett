@@ -281,8 +281,9 @@ async function poll() {
     $('btnAutofokus').classList.toggle('primaer', !!k.autofokus);
     $('stabil').style.width = Math.round((k.stabil || 0) * 100) + '%';
     if ((k.ausgebrannt || 0) > 0.05 && !k.fehler) {
-      $('kamerainfo').textContent = 'Bild überbelichtet' + (k.belichtung != null ? ` (Belichtung ${k.belichtung})` : '') +
-        ' – wird nachgeregelt; sonst Licht dimmen oder Belichtung im Kamera-Treiber senken.';
+      const regelt = k.festgehalten && k.festgehalten.belichtung;
+      $('kamerainfo').textContent = 'Bild überbelichtet' + (regelt && k.belichtung != null ? ` (Belichtung ${k.belichtung}) – wird nachgeregelt` : '') +
+        ' – Licht dimmen oder Belichtung im Kamera-Treiber senken.';
     }
     kartenzustand(k);
     if (k.kamera_ok && !streamGestartet) { $('live').src = '/stream.mjpg'; $('live').hidden = false; $('keinekamera').hidden = true; streamGestartet = true; }
@@ -330,8 +331,9 @@ const EINST = [
   ['nummern_sammeln', 'Nummern-Ausschnitte sammeln (Ordner „nummern“)', 'ja'],
   ['nummer_min', 'Schützennummer von'], ['nummer_max', 'Schützennummer bis'],
   ['kamera_index', 'Kamera-Nr.'], ['kamera_mjpg', 'MJPG-Format (mehr Bilder/s)', 'ja'],
-  ['kamera_festhalten', 'Fokus/Belichtung festhalten', 'ja'],
-  ['belichtung_regeln', 'Belichtung nachregeln, wenn das Bild ausbrennt', 'ja'],
+  ['kamera_festhalten', 'Fokus festhalten', 'ja'],
+  ['belichtung_festhalten', 'Auch Belichtung/Weißabgleich festhalten (kann überbelichten)', 'ja'],
+  ['belichtung_regeln', 'Festgehaltene Belichtung nachregeln, wenn das Bild ausbrennt', 'ja'],
   ['beim_entnehmen_speichern', 'Beim Wegnehmen der Karte automatisch speichern (nur ohne „prüfen“)', 'ja'],
   ['kamera_fokus', 'Fester Fokus (−1 = automatisch ermittelt, Regler oben wirkt sofort)'],
   ['stabile_frames', 'Ruhe-Frames bis Aufnahme'], ['stabil_toleranz', 'Ruhe-Toleranz (Anteil der Raute)'],

@@ -73,7 +73,14 @@ class Kamera:
     Frames, damit die Auswertung über mehrere Bilder abstimmen kann. Danach muss
     die Karte erst wieder aus dem Bild, bevor die nächste Auto-Aufnahme möglich ist.
 
-    ``sperren``: Nach einer Einlaufzeit werden Autofokus, Belichtung und
+    Belichtung und Weißabgleich bleiben standardmäßig automatisch: unter DirectShow
+    meldet die Kamera während der Automatik meist nicht die tatsächliche, sondern
+    eine alte gespeicherte Belichtung – diese festzuhalten ergab überbelichtete
+    Bilder. Beim Öffnen und Beenden werden alle Automatiken wieder eingeschaltet,
+    weil die Kamera „manuell“ sonst über das Programmende hinaus behält.
+
+    ``sperren``: Nach einer Einlaufzeit werden Autofokus (und mit
+    ``belichtung_festhalten`` auch Belichtung und
     Weißabgleich auf den aktuellen Werten festgehalten, damit das Bild nicht
     ständig nachgeregelt wird. Was die Kamera nicht unterstützt, wird übersprungen.
     """
@@ -100,6 +107,7 @@ class Kamera:
         fokus: int = -1,
         mjpg: bool = True,
         bei_entnahme: Callable[[], None] | None = None,
+        belichtung_festhalten: bool = False,
         belichtung_regeln: bool = True,
     ) -> None:
         self.index = index
@@ -114,6 +122,7 @@ class Kamera:
         self.mjpg = mjpg
         self.auto_aktiv = True
         self.bei_entnahme = bei_entnahme
+        self.belichtung_festhalten = belichtung_festhalten
         self.belichtung_regeln = belichtung_regeln
         self.belichtung: float | None = None  # aktueller Belichtungswert der Kamera
         self.ausgebrannt: float = 0.0  # Anteil ausgebrannter Pixel im letzten geprüften Bild
@@ -248,7 +257,25 @@ class Kamera:
             cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # kein Rückstau alter Bilder
         except cv2.error:
             pass
+        self._automatik_an(cap, fokus=self.fokus < 0)
         return cap
+
+    @staticmethod
+    def _automatik_an(cap: cv2.VideoCapture, fokus: bool = True) -> None:
+        """Belichtung, Weißabgleich (und Fokus) der Kamera wieder automatisch regeln lassen.
+
+        Die Kamera speichert diese Einstellungen im Gerät; ohne Rücksetzen bliebe sie nach
+        einem Programmlauf auf festen Werten stehen.
+        """
+        auto = 1 if sys.platform.startswith("win") else 0.75  # DirectShow: 1 = Auto; V4L2: 0,75 = Auto
+        werte = [(cv2.CAP_PROP_AUTO_EXPOSURE, auto), (cv2.CAP_PROP_AUTO_WB, 1)]
+        if fokus:
+            werte.append((cv2.CAP_PROP_AUTOFOCUS, 1))
+        for prop, wert in werte:
+            try:
+                cap.set(prop, wert)
+            except cv2.error:
+                pass
 
     def _festhalten(self, cap: cv2.VideoCapture) -> None:
         """Automatiken abschalten und die gerade eingeregelten Werte behalten."""
@@ -263,6 +290,9 @@ class Kamera:
         fokus = self.fokus if self.fokus >= 0 else cap.get(cv2.CAP_PROP_FOCUS)
         erg["fokus"] = setze(cv2.CAP_PROP_AUTOFOCUS, 0) | setze(cv2.CAP_PROP_FOCUS, fokus)
         self.autofokus = not erg["fokus"]
+        if not self.belichtung_festhalten:
+            self.festgehalten = erg
+            return
         belichtung = cap.get(cv2.CAP_PROP_EXPOSURE)
         # DirectShow schaltet beim Setzen eines Werts auf manuell, V4L2 braucht AUTO_EXPOSURE=1/0.25
         manuell = 0.25 if not sys.platform.startswith("win") else 0
@@ -448,4 +478,5 @@ class Kamera:
                     self.bei_aufnahme(fertig)
                 except Exception as e:  # Auswertung darf die Kamera nicht stoppen
                     self.fehler = f"Auswertung fehlgeschlagen: {e}"
+        self._automatik_an(cap)  # Kamera nicht verstellt zurücklassen
         cap.release()
