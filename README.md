@@ -55,6 +55,7 @@ Diese Werte stehen fest in `labinett/scheibe.py` und sind nicht einstellbar.
 | `aufnahme_bilder` | 3 | so viele ruhige Bilder werden ausgewertet; die Mehrheit zählt, Abweichungen werden markiert |
 | `kamera_mjpg` | true | Webcam im MJPG-Format öffnen (Full HD mit 30 statt oft nur 5 Bildern/s) |
 | `kamera_festhalten` | true | Fokus nach 3 s festhalten |
+| `kamera_belichtung` | null | feste Belichtung (Regler „Belichtung“ unter dem Kamerabild, wirkt sofort); `null` = Automatik. Windows: log2-Sekunden, bei Ringlicht z. B. −8 |
 | `belichtung_festhalten` | false | auch Belichtung und Weißabgleich festhalten. Aus lassen: unter Windows melden viele Webcams eine falsche Belichtung, das Bild wird dann überbelichtet. Beim Start und Beenden schaltet labinett die Automatiken der Kamera wieder ein |
 | `kamera_fokus` | -1 | fester Fokuswert der Webcam, -1 = eingeregelten Wert übernehmen (Regler in der Oberfläche setzt ihn live) |
 | `nummer_erfassen` | false | Schützennummer abfragen; `false` = ohne Nummer speichern, kein „prüfen“ wegen fehlender Nummer |

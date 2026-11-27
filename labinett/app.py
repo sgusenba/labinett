@@ -207,6 +207,10 @@ class AnrissAnfrage(BaseModel):
     wert: float  # mm, negativ = strenger, positiv = großzügiger
 
 
+class BelichtungAnfrage(BaseModel):
+    wert: float | None  # fester Wert, None = Automatik
+
+
 class FokusAnfrage(BaseModel):
     wert: int  # ≥ 0 fester Fokus, -1 = Autofokus
 
@@ -310,6 +314,7 @@ def erstelle_app(
             mjpg=einst.kamera_mjpg,
             belichtung_regeln=einst.belichtung_regeln,
             belichtung_festhalten=einst.belichtung_festhalten,
+            belichtung=einst.kamera_belichtung,
         )
 
         @app.on_event("startup")
@@ -405,6 +410,20 @@ def erstelle_app(
         einst.kamera_fokus = anfrage.wert
         config.speichern(einst, config_pfad)
         return {"ok": True, "fokus": anfrage.wert}
+
+    @app.post("/api/kamera/belichtung")
+    def kamera_belichtung(anfrage: BelichtungAnfrage) -> dict:
+        """Belichtung sofort ändern (None = Automatik) und als Einstellung merken."""
+        if anfrage.wert is not None:
+            lo, hi = Kamera.belichtung_bereich()
+            if not lo <= anfrage.wert <= hi:
+                raise HTTPException(400, f"Belichtung muss zwischen {lo:g} und {hi:g} liegen")
+        if kamera is None:
+            raise HTTPException(409, "Keine Kamera aktiv")
+        kamera.belichtung_setzen(anfrage.wert)
+        einst.kamera_belichtung = anfrage.wert
+        config.speichern(einst, config_pfad)
+        return {"ok": True, "belichtung": anfrage.wert}
 
     @app.post("/api/anriss-toleranz")
     def anriss_toleranz(anfrage: AnrissAnfrage) -> dict:

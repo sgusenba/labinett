@@ -248,3 +248,25 @@ def test_belichtung_wird_bei_ueberbelichtung_reduziert(monkeypatch):
         k.stop()
     assert cap.exp == -6  # bis knapp unter die Ausbrenn-Grenze abgedunkelt, nicht weiter
     assert k.status()["belichtung"] == -6
+
+
+def test_feste_belichtung(monkeypatch):
+    """Feste Belichtung wird beim Öffnen gesetzt, live geändert und mit None wieder automatisch."""
+    karte = cv2.imread(str(TESTDATA / "nikolo_04.jpg"))
+    cap = ProtokollCap([karte] * 2000)
+    monkeypatch.setattr(cv2, "VideoCapture", lambda *a: cap)
+    monkeypatch.setattr(Kamera, "belichtung_bereich", staticmethod(lambda: (-13.0, -1.0)))
+    k = Kamera(0, 640, 480, stabile_frames=5, bei_aufnahme=lambda b: None, sperren=False, belichtung=-8)
+    k.start()
+    try:
+        time.sleep(0.2)
+        assert cap.gesetzt[cv2.CAP_PROP_EXPOSURE] == -8
+        assert cap.gesetzt[cv2.CAP_PROP_AUTO_EXPOSURE] == 0.25  # manuell (Linux-Wert im Test)
+        k.belichtung_setzen(-9)
+        time.sleep(0.2)
+        assert cap.gesetzt[cv2.CAP_PROP_EXPOSURE] == -9 and k.status()["belichtung_fest"] == -9
+        k.belichtung_setzen(None)
+        time.sleep(0.2)
+        assert cap.gesetzt[cv2.CAP_PROP_AUTO_EXPOSURE] == 0.75 and k.status()["belichtung_fest"] is None
+    finally:
+        k.stop()

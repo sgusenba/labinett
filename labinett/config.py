@@ -45,6 +45,9 @@ class Einstellungen:
     kamera_festhalten: bool = True
     # Fester Fokuswert (kameraabhängig), -1 = eingeregelten Wert übernehmen
     kamera_fokus: int = -1
+    # Feste Belichtung (Regler in der Oberfläche), None = Automatik der Kamera.
+    # Windows/DirectShow: log2-Sekunden, z. B. -8 ≈ 1/256 s (bei Ringlicht passend)
+    kamera_belichtung: float | None = None
     # Auch Belichtung und Weißabgleich festhalten. Aus: unter Windows melden viele Webcams
     # eine falsche Belichtung, festgehalten wird das Bild dann überbelichtet.
     belichtung_festhalten: bool = False
@@ -96,6 +99,8 @@ class Einstellungen:
 
 def wert_umwandeln(alt: object, neu: object) -> object:
     """Wert aus der Oberfläche in den Typ der Einstellung bringen (auch "false" → False)."""
+    if alt is None:  # optionale Zahl, z. B. kamera_belichtung: leer = None
+        return None if neu in (None, "") else float(neu)
     if isinstance(alt, bool):
         if isinstance(neu, str):
             t = neu.strip().lower()

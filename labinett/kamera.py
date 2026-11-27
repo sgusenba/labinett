@@ -108,6 +108,7 @@ class Kamera:
         mjpg: bool = True,
         bei_entnahme: Callable[[], None] | None = None,
         belichtung_festhalten: bool = False,
+        belichtung: float | None = None,
         belichtung_regeln: bool = True,
     ) -> None:
         self.index = index
@@ -123,6 +124,9 @@ class Kamera:
         self.auto_aktiv = True
         self.bei_entnahme = bei_entnahme
         self.belichtung_festhalten = belichtung_festhalten
+        # Feste Belichtung vom Bediener (Regler), None = Automatik der Kamera
+        self.belichtung_fest: float | None = belichtung
+        self._belichtung_wunsch: tuple[float | None] | None = None  # im Lesethread anzuwenden
         self.belichtung_regeln = belichtung_regeln
         self.belichtung: float | None = None  # aktueller Belichtungswert der Kamera
         self.ausgebrannt: float = 0.0  # Anteil ausgebrannter Pixel im letzten geprüften Bild
@@ -189,6 +193,28 @@ class Kamera:
         """
         self._fokus_wunsch = int(wert)
 
+    def belichtung_setzen(self, wert: float | None) -> None:
+        """Feste Belichtung live setzen, ``None`` = Belichtungsautomatik der Kamera."""
+        self._belichtung_wunsch = (wert,)
+
+    @staticmethod
+    def belichtung_bereich() -> tuple[float, float]:
+        """Regler-Bereich: DirectShow in log2-Sekunden (−8 ≈ 1/256 s), V4L2 in 100 µs."""
+        return (-13.0, -1.0) if sys.platform.startswith("win") else (1.0, 2000.0)
+
+    def _belichtung_anwenden(self, cap: cv2.VideoCapture, wert: float | None) -> None:
+        win = sys.platform.startswith("win")
+        try:
+            if wert is None:
+                cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1 if win else 0.75)
+            else:
+                cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0 if win else 0.25)
+                cap.set(cv2.CAP_PROP_EXPOSURE, wert)
+            self.belichtung = float(cap.get(cv2.CAP_PROP_EXPOSURE))
+        except cv2.error:
+            pass
+        self.belichtung_fest = wert
+
     def status(self) -> dict:
         with self._lock:
             return {
@@ -199,6 +225,8 @@ class Kamera:
                 "wartet_auf_neue_karte": self._gesperrt,
                 "entnahmen": self.entnahmen,
                 "belichtung": self.belichtung,
+                "belichtung_fest": self.belichtung_fest,
+                "belichtung_bereich": self.belichtung_bereich(),
                 "ausgebrannt": round(self.ausgebrannt, 3),
                 "auto_aktiv": self.auto_aktiv,
                 "festgehalten": dict(self.festgehalten),
@@ -258,6 +286,8 @@ class Kamera:
         except cv2.error:
             pass
         self._automatik_an(cap, fokus=self.fokus < 0)
+        if self.belichtung_fest is not None:
+            self._belichtung_anwenden(cap, self.belichtung_fest)
         return cap
 
     @staticmethod
@@ -290,7 +320,7 @@ class Kamera:
         fokus = self.fokus if self.fokus >= 0 else cap.get(cv2.CAP_PROP_FOCUS)
         erg["fokus"] = setze(cv2.CAP_PROP_AUTOFOCUS, 0) | setze(cv2.CAP_PROP_FOCUS, fokus)
         self.autofokus = not erg["fokus"]
-        if not self.belichtung_festhalten:
+        if not self.belichtung_festhalten or self.belichtung_fest is not None:
             self.festgehalten = erg
             return
         belichtung = cap.get(cv2.CAP_PROP_EXPOSURE)
@@ -398,6 +428,9 @@ class Kamera:
                     cap.set(cv2.CAP_PROP_SETTINGS, 1)
                 except cv2.error:
                     pass
+            if self._belichtung_wunsch is not None:
+                (bel,), self._belichtung_wunsch = self._belichtung_wunsch, None
+                self._belichtung_anwenden(cap, bel)
             if self._fokus_wunsch is not None:
                 wunsch, self._fokus_wunsch = self._fokus_wunsch, None
                 if self._fokus_anwenden(cap, wunsch):
