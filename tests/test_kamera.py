@@ -275,3 +275,91 @@ def test_feste_belichtung(monkeypatch):
         assert cap.gesetzt[cv2.CAP_PROP_AUTO_EXPOSURE] == AUTO and k.status()["belichtung_fest"] is None
     finally:
         k.stop()
+
+
+class AutoHelleCap(HelleCap):
+    """Kamera-Automatik brennt die Karte aus (dunkle Unterlage); manuell ab -6 passend."""
+
+    def __init__(self, karte):
+        super().__init__(karte)
+        self.auto = True
+
+    def read(self):
+        time.sleep(0.005)
+        if self.auto or self.exp > -6:
+            return True, cv2.convertScaleAbs(self.karte, alpha=3.0)
+        return True, self.karte
+
+    def set(self, prop, wert):
+        if prop == cv2.CAP_PROP_AUTO_EXPOSURE:
+            self.auto = wert == AUTO
+        return super().set(prop, wert)
+
+
+def _einmessen_laufen(cap, monkeypatch, bedingung, **kw):
+    monkeypatch.setattr(Kamera, "EINLAUF_S", 0.0)
+    monkeypatch.setattr(Kamera, "belichtung_bereich", staticmethod(lambda: (-13.0, -1.0)))
+    gespeichert = []
+    k = Kamera(0, 640, 480, stabile_frames=5, bei_aufnahme=lambda b: None, sperren=True,
+               bei_belichtung=gespeichert.append, **kw)
+    k._oeffnen = lambda: cap
+    k.start()
+    try:
+        ende = time.monotonic() + 10
+        while not bedingung(k, gespeichert) and time.monotonic() < ende:
+            time.sleep(0.05)
+        time.sleep(0.3)
+        return k, gespeichert
+    finally:
+        k.stop()
+
+
+def test_einmessen_automatisch_bei_ueberbelichtung(monkeypatch):
+    """Unter Kamera-Automatik ausgebrannt: fester Wert wird eingemessen und gemeldet."""
+    karte = cv2.imread(str(TESTDATA / "nikolo_04.jpg"))
+    cap = AutoHelleCap(karte)
+    k, gespeichert = _einmessen_laufen(cap, monkeypatch, lambda k, g: g)
+    assert gespeichert == [-6.0]  # erster Wert, bei dem nichts mehr ausbrennt
+    assert k.status()["belichtung_fest"] == -6.0
+    assert "eingemessen" in k.status()["einmess_meldung"]
+
+
+def test_einmessen_aus(monkeypatch):
+    karte = cv2.imread(str(TESTDATA / "nikolo_04.jpg"))
+    cap = AutoHelleCap(karte)
+    monkeypatch.setattr(Kamera, "EINLAUF_S", 0.0)
+    k = Kamera(0, 640, 480, stabile_frames=5, bei_aufnahme=lambda b: None, belichtung_einmessen=False)
+    k._oeffnen = lambda: cap
+    k.start()
+    try:
+        time.sleep(1.0)
+    finally:
+        k.stop()
+    assert k.status()["belichtung_fest"] is None and k.einmess_meldung is None
+
+
+def test_einmessen_per_schaltflaeche_auch_bei_fester_belichtung(monkeypatch):
+    karte = cv2.imread(str(TESTDATA / "nikolo_04.jpg"))
+    cap = AutoHelleCap(karte)
+    cap.exp = -2.0
+    gesetzt = []
+
+    def bedingung(k, g):
+        if not gesetzt:
+            gesetzt.append(1)
+            k.einmessen()
+        return bool(g)
+
+    _, gespeichert = _einmessen_laufen(cap, monkeypatch, bedingung, belichtung=-2.0)
+    assert gespeichert == [-6.0]
+
+
+def test_einmessen_kamera_ohne_belichtungswerte(monkeypatch):
+    """Übernimmt die Kamera keine Werte, zurück auf Automatik und Hinweis statt Endlosschleife."""
+    karte = cv2.imread(str(TESTDATA / "nikolo_04.jpg"))
+    cap = AutoHelleCap(karte)
+    cap.set = lambda prop, wert: FakeCap.set(cap, prop, wert) or (
+        setattr(cap, "auto", wert == AUTO) if prop == cv2.CAP_PROP_AUTO_EXPOSURE else None) or True
+    k, gespeichert = _einmessen_laufen(cap, monkeypatch, lambda k, g: k.einmess_meldung and "Treiber" in k.einmess_meldung)
+    assert gespeichert == []
+    assert "Treiber" in k.einmess_meldung and k.status()["belichtung_fest"] is None

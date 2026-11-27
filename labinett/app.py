@@ -300,6 +300,10 @@ def erstelle_app(
         except HTTPException as e:
             zustand.letzte_meldung = str(e.detail)
 
+    def bei_belichtung(wert: float) -> None:
+        einst.kamera_belichtung = wert
+        config.speichern(einst, config_pfad)
+
     if mit_kamera:
         kamera = Kamera(
             einst.kamera_index,
@@ -315,6 +319,8 @@ def erstelle_app(
             belichtung_regeln=einst.belichtung_regeln,
             belichtung_festhalten=einst.belichtung_festhalten,
             belichtung=einst.kamera_belichtung,
+            belichtung_einmessen=einst.belichtung_einmessen,
+            bei_belichtung=bei_belichtung,
         )
 
         @app.on_event("startup")
@@ -424,6 +430,14 @@ def erstelle_app(
         einst.kamera_belichtung = anfrage.wert
         config.speichern(einst, config_pfad)
         return {"ok": True, "belichtung": anfrage.wert}
+
+    @app.post("/api/kamera/einmessen")
+    def kamera_einmessen() -> dict:
+        """Belichtung jetzt einmessen; der gefundene Wert wird gespeichert."""
+        if kamera is None:
+            raise HTTPException(409, "Keine Kamera aktiv")
+        kamera.einmessen()
+        return {"ok": True}
 
     @app.post("/api/anriss-toleranz")
     def anriss_toleranz(anfrage: AnrissAnfrage) -> dict:

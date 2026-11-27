@@ -92,6 +92,10 @@ class Kamera:
     AUSGEBRANNT_MAX = 0.02
     ZU_DUNKEL_P99 = 130.0
     BELICHTUNG_PAUSE = 4  # Frames warten, bis ein neuer Wert im Bild wirkt
+    # Einmessen: so viele Prüfungen in Folge überbelichtet (mit Karte), bis die Automatik
+    # der Kamera durch einen eingemessenen festen Wert ersetzt wird
+    EINMESSEN_NACH = 5
+    EINMESSEN_MAX_SCHRITTE = 14
     EINLAUF_S = 3.0  # Sekunden Automatik, bevor die Werte festgehalten werden
 
     def __init__(
@@ -110,6 +114,8 @@ class Kamera:
         belichtung_festhalten: bool = False,
         belichtung: float | None = None,
         belichtung_regeln: bool = True,
+        belichtung_einmessen: bool = True,
+        bei_belichtung: Callable[[float], None] | None = None,
     ) -> None:
         self.index = index
         self.breite = breite
@@ -128,6 +134,14 @@ class Kamera:
         self.belichtung_fest: float | None = belichtung
         self._belichtung_wunsch: tuple[float | None] | None = None  # im Lesethread anzuwenden
         self.belichtung_regeln = belichtung_regeln
+        # Überbelichtung unter Kamera-Automatik: selbst einen festen Wert einmessen
+        self.belichtung_einmessen = belichtung_einmessen
+        self.bei_belichtung = bei_belichtung  # meldet den eingemessenen Wert (zum Speichern)
+        self._einmessen: dict | None = None  # laufendes Einmessen: Wert, Richtung, Schritte
+        self._einmess_wunsch = False
+        self._einmess_versucht = belichtung is not None  # automatisch höchstens einmal je Lauf
+        self._ueber = 0  # Prüfungen in Folge überbelichtet
+        self.einmess_meldung: str | None = None
         self.belichtung: float | None = None  # aktueller Belichtungswert der Kamera
         self.ausgebrannt: float = 0.0  # Anteil ausgebrannter Pixel im letzten geprüften Bild
         self._bel_pause = 0
@@ -194,8 +208,17 @@ class Kamera:
         self._fokus_wunsch = int(wert)
 
     def belichtung_setzen(self, wert: float | None) -> None:
-        """Feste Belichtung live setzen, ``None`` = Belichtungsautomatik der Kamera."""
+        """Feste Belichtung live setzen, ``None`` = Belichtungsautomatik der Kamera.
+
+        Eine Bedienung beendet ein laufendes Einmessen; wer bewusst „Auto“ wählt, bekommt
+        in diesem Lauf kein automatisches Einmessen mehr.
+        """
         self._belichtung_wunsch = (wert,)
+        self._einmess_versucht = True
+
+    def einmessen(self) -> None:
+        """Belichtung jetzt einmessen (Schaltfläche): abdunkeln, bis nichts mehr ausbrennt."""
+        self._einmess_wunsch = True
 
     @staticmethod
     def belichtung_bereich() -> tuple[float, float]:
@@ -228,6 +251,8 @@ class Kamera:
                 "belichtung_fest": self.belichtung_fest,
                 "belichtung_bereich": self.belichtung_bereich(),
                 "ausgebrannt": round(self.ausgebrannt, 3),
+                "einmessen": self._einmessen is not None,
+                "einmess_meldung": self.einmess_meldung,
                 "auto_aktiv": self.auto_aktiv,
                 "festgehalten": dict(self.festgehalten),
                 "fokus": self.fokus_aktuell,
@@ -382,6 +407,98 @@ class Kamera:
         self.belichtung = gelesen
         self._bel_pause = self.BELICHTUNG_PAUSE
 
+    def _einmessen_starten(self, cap: cv2.VideoCapture) -> None:
+        """Auf manuelle Belichtung umschalten, Startwert = aktueller Wert der Kamera."""
+        lo, hi = self.belichtung_bereich()
+        try:
+            wert = float(cap.get(cv2.CAP_PROP_EXPOSURE))
+        except cv2.error:
+            wert = float("nan")
+        if not lo <= wert <= hi:  # Automatik meldet oft Unsinn: in der Mitte beginnen
+            wert = round((lo + hi) / 2)
+        self._belichtung_anwenden(cap, wert)
+        self._einmessen = {"wert": wert, "richtung": 0, "schritte": 0}
+        self._einmess_versucht = True
+        self._bel_pause = self.BELICHTUNG_PAUSE
+        self.einmess_meldung = "Belichtung wird eingemessen …"
+
+    def _einmessen_ende(self, wert: float | None, meldung: str) -> None:
+        self._einmessen = None
+        self.einmess_meldung = meldung
+        if wert is not None and self.bei_belichtung:
+            try:
+                self.bei_belichtung(wert)
+            except Exception as e:  # Speichern darf die Kamera nicht stoppen
+                self.fehler = f"Belichtung speichern: {e}"
+
+    def _einmessen_schritt(self, cap: cv2.VideoCapture, aus: float, p99: float, karte_da: bool) -> None:
+        """Ein Schritt: dunkler, solange etwas ausbrennt; heller, wenn die Karte zu dunkel ist.
+
+        Wechselt die Richtung, liegt der passende Wert dazwischen – dann wird der
+        dunklere genommen (lieber etwas dunkel als ausgebrannte Linien).
+        """
+        m = self._einmessen
+        alt = m["wert"]
+        dunkler = aus > self.AUSGEBRANNT_MAX
+        heller = not dunkler and karte_da and p99 < self.ZU_DUNKEL_P99
+        if not (dunkler or heller):
+            self._einmessen_ende(alt, f"Belichtung eingemessen: {alt:g}")
+            return
+        if heller and m["richtung"] < 0:  # vorher zu hell, jetzt zu dunkel: dabei bleiben
+            self._einmessen_ende(alt, f"Belichtung eingemessen: {alt:g}")
+            return
+        if m["schritte"] >= self.EINMESSEN_MAX_SCHRITTE:
+            self._einmessen_ende(alt, f"Belichtung eingemessen: {alt:g} (Grenze erreicht)")
+            return
+        neu = naechste_belichtung(alt, dunkler)
+        lo, hi = self.belichtung_bereich()
+        neu = min(hi, max(lo, neu))
+        if neu == alt:
+            self._einmessen_ende(alt, f"Belichtung {alt:g} – Grenze der Kamera erreicht, Licht schwächer stellen")
+            return
+        try:
+            cap.set(cv2.CAP_PROP_EXPOSURE, neu)
+            gelesen = float(cap.get(cv2.CAP_PROP_EXPOSURE))
+        except cv2.error:
+            gelesen = alt
+        if gelesen == alt:
+            self._belichtung_anwenden(cap, None)
+            self._einmessen_ende(None, "Kamera übernimmt keine Belichtungswerte – bitte im Kamera-Treiber einstellen")
+            return
+        self.belichtung = gelesen
+        self.belichtung_fest = gelesen
+        m.update(wert=gelesen, richtung=-1 if dunkler else 1, schritte=m["schritte"] + 1)
+        self._bel_pause = self.BELICHTUNG_PAUSE
+
+    def _einmessen_pruefen(self, cap: cv2.VideoCapture, frame: np.ndarray, karte_da: bool) -> bool:
+        """Einmessen anstoßen bzw. fortsetzen. True = Einmessen läuft (Nachregeln ruht)."""
+        if self._einmess_wunsch:
+            self._einmess_wunsch = False
+            self._einmessen_starten(cap)
+            return True
+        if self._einmessen is not None:
+            if self._bel_pause > 0:
+                self._bel_pause -= 1
+                return True
+            aus, p99 = helligkeit(frame)
+            self.ausgebrannt = aus
+            self._einmessen_schritt(cap, aus, p99, karte_da)
+            return True
+        # automatisch: nur unter Kamera-Automatik, nur mit Karte, nur einmal je Lauf
+        if (
+            not self.belichtung_einmessen
+            or self._einmess_versucht
+            or self.belichtung_fest is not None
+            or self.festgehalten.get("belichtung")
+        ):
+            return False
+        self._ueber = self._ueber + 1 if karte_da and self.ausgebrannt > self.AUSGEBRANNT_MAX else 0
+        if self._ueber < self.EINMESSEN_NACH:
+            return False
+        self._ueber = 0
+        self._einmessen_starten(cap)
+        return True
+
     def _merke_karte(self, frame: np.ndarray, ecken: np.ndarray) -> None:
         g = _grau_klein(frame)
         f = g.shape[1] / frame.shape[1]
@@ -430,6 +547,9 @@ class Kamera:
                     pass
             if self._belichtung_wunsch is not None:
                 (bel,), self._belichtung_wunsch = self._belichtung_wunsch, None
+                if self._einmessen is not None:  # Bediener hat übernommen
+                    self._einmessen = None
+                    self.einmess_meldung = None
                 self._belichtung_anwenden(cap, bel)
             if self._fokus_wunsch is not None:
                 wunsch, self._fokus_wunsch = self._fokus_wunsch, None
@@ -460,7 +580,8 @@ class Kamera:
                 self._fokus_lesen(cap)
             ecken = schnell_ecken(frame)
             if festgehalten and n % 3 == 0:
-                self._belichtung_pruefen(cap, frame, ecken is not None)
+                if not self._einmessen_pruefen(cap, frame, ecken is not None):
+                    self._belichtung_pruefen(cap, frame, ecken is not None)
             fertig: list[np.ndarray] | None = None
             entnommen = False
             with self._lock:
