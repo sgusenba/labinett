@@ -102,6 +102,7 @@ class Zustand:
         self.letzte_meldung = ""
         self._entwurf_zaehler = 0  # eindeutige Entwurfs-ID (Zeitstempel hat nur Sekunden)
         self.letzter_nachtrag = 0.0
+        self.karte_wartet_seit = 0.0  # Zeitpunkt, zu dem eine neue Karte wegen offenem Entwurf warten musste
 
     def auswerten(self, bilder: np.ndarray | list[np.ndarray], quelle: str) -> dict:
         """Wertet ein Bild oder mehrere Bilder derselben Karte aus (Mehrheit zählt)."""
@@ -291,14 +292,20 @@ def erstelle_app(
 
     kamera: Kamera | None = None
 
-    def bei_aufnahme(frames: list[np.ndarray]) -> None:
+    def bei_aufnahme(frames: list[np.ndarray]) -> bool:
+        """False = nicht übernommen; die Kamera versucht es dann gleich noch einmal."""
         with zustand.lock:
             if zustand.entwurf is not None:
-                return  # offener Entwurf wird nicht überschrieben
+                # offener Entwurf wird nicht überschrieben – die Oberfläche zeigt
+                # „neue Karte wartet“ und die Karte lädt, sobald er gespeichert/verworfen ist
+                zustand.karte_wartet_seit = time.monotonic()
+                return False
         try:
             zustand.auswerten(frames, "auto")
+            zustand.letzte_meldung = ""
         except HTTPException as e:
             zustand.letzte_meldung = str(e.detail)
+        return True
 
     def bei_belichtung(wert: float) -> None:
         einst.kamera_belichtung = wert
@@ -381,6 +388,8 @@ def erstelle_app(
             # damit die häufige Statusabfrage klein und schnell bleibt
             "entwurf": {"id": entwurf["id"]} if entwurf else None,
             "meldung": zustand.letzte_meldung,
+            # neue Karte liegt, kann aber erst nach Speichern/Verwerfen geladen werden
+            "karte_wartet": entwurf is not None and time.monotonic() - zustand.karte_wartet_seit < 2.0,
             "csv": str(einst.csv_datei()),
             "csv_ausstehend": offen,
             "csv_fehler": csv_fehler,

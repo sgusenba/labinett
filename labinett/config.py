@@ -57,7 +57,7 @@ class Einstellungen:
     # selbst einen festen Belichtungswert einmessen und als kamera_belichtung speichern
     belichtung_einmessen: bool = True
     # Ergebnis automatisch speichern, sobald die Karte weggenommen wird (nur wenn nichts zu prüfen ist)
-    beim_entnehmen_speichern: bool = False
+    beim_entnehmen_speichern: bool = True
     # Webcam im MJPG-Format öffnen: viele USB-Kameras liefern 1080p sonst nur mit ~5 Bildern/s
     kamera_mjpg: bool = True
     # Schützennummer erfassen (Ausschnitt anzeigen, Eingabe verlangen); False = ohne Nummer speichern

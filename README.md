@@ -51,7 +51,7 @@ Diese Werte stehen fest in `labinett/scheibe.py` und sind nicht einstellbar.
 | `stabile_frames` | 8 | Ruhe-Frames bis zur Auto-Aufnahme |
 | `stabil_toleranz` | 0.01 | „ruhig“ = keine Rautenecke bewegt sich mehr als dieser Anteil der Diagonale |
 | `belichtung_regeln` | true | nur mit `belichtung_festhalten`: festgehaltene Belichtung schrittweise kürzen, wenn mehr als 2 % des Bildes ausbrennen (z. B. Ringlicht nach dem Start eingeschaltet), bzw. verlängern, wenn eine liegende Karte zu dunkel ist |
-| `beim_entnehmen_speichern` | false | Ergebnis automatisch speichern, sobald die Karte weggenommen wird – nur wenn nichts zu prüfen ist |
+| `beim_entnehmen_speichern` | true | Ergebnis automatisch speichern, sobald die Karte weggenommen wird – nur wenn nichts zu prüfen ist |
 | `aufnahme_bilder` | 3 | so viele ruhige Bilder werden ausgewertet; die Mehrheit zählt, Abweichungen werden markiert |
 | `kamera_mjpg` | true | Webcam im MJPG-Format öffnen (Full HD mit 30 statt oft nur 5 Bildern/s) |
 | `kamera_festhalten` | true | Fokus nach 3 s festhalten |
