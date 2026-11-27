@@ -74,8 +74,8 @@ def test_auto_aufnahme_einmal_pro_karte():
     karte = cv2.imread(str(TESTDATA / "nikolo_04.jpg"))
     leer = karte.copy()
     leer[:] = 30
-    # Karte liegt 15 Frames, wird entfernt (10 leere), wieder hingelegt (15)
-    frames = [karte] * 15 + [leer] * 10 + [karte] * 15 + [leer] * 200
+    # Karte liegt 15 Frames, wird entfernt (100 leere, > LEER_MIN_S), wieder hingelegt (15)
+    frames = [karte] * 15 + [leer] * 100 + [karte] * 15 + [leer] * 200
     aufnahmen, _, _ = _laufen(frames, aufnahme_bilder=3, sperren=False)
     assert len(aufnahmen) == 2
     # jede Aufnahme liefert die letzten 3 ruhigen Bilder
@@ -131,3 +131,93 @@ def test_vorschau_nur_neue_bilder():
     assert nr == 1 and jpg[:2] == b"\xff\xd8"
     assert k.vorschau(nach=1) is None  # kein neues Bild -> nichts senden
     assert k.vorschau(nach=0) == (1, jpg)  # zweiter Zuseher bekommt das schon kodierte Bild
+
+
+def test_kurzes_verschwinden_ist_keine_entnahme():
+    """Raute kurz nicht erkannt (z. B. Hand, Reflex), Karte liegt aber noch: keine 2. Aufnahme."""
+    karte = cv2.imread(str(TESTDATA / "nikolo_04.jpg"))
+    verdeckt = karte.copy()
+    verdeckt[:, :800] = (90, 110, 150)  # Hand über der linken Hälfte, Raute nicht mehr erkennbar
+    assert schnell_ecken(verdeckt) is None
+    entnahmen = []
+    frames = [karte] * 15 + [verdeckt] * 120 + [karte] * 200
+    k = Kamera(0, 640, 480, stabile_frames=5, bei_aufnahme=lambda b: None, sperren=False,
+               bei_entnahme=lambda: entnahmen.append(1))
+    aufnahmen = []
+    k.bei_aufnahme = aufnahmen.append
+    cap = FakeCap(frames)
+    k._oeffnen = lambda: cap
+    k.start()
+    while cap.i < len(frames):
+        time.sleep(0.05)
+    k.stop()
+    assert len(aufnahmen) == 1 and entnahmen == []
+
+
+def test_entnahme_wird_gemeldet():
+    karte = cv2.imread(str(TESTDATA / "nikolo_04.jpg"))
+    leer = karte.copy()
+    leer[:] = 30
+    entnahmen = []
+    frames = [karte] * 15 + [leer] * 150
+    k = Kamera(0, 640, 480, stabile_frames=5, bei_aufnahme=lambda b: None, sperren=False,
+               bei_entnahme=lambda: entnahmen.append(1))
+    cap = FakeCap(frames)
+    k._oeffnen = lambda: cap
+    k.start()
+    while cap.i < len(frames):
+        time.sleep(0.05)
+    k.stop()
+    assert entnahmen == [1] and k.status()["entnahmen"] == 1
+    assert not k.status()["wartet_auf_neue_karte"]
+
+
+def test_naechste_belichtung():
+    from labinett.kamera import naechste_belichtung
+
+    assert naechste_belichtung(-5, dunkler=True) == -6  # DirectShow: log2-Sekunden
+    assert naechste_belichtung(-5, dunkler=False) == -4
+    assert naechste_belichtung(-13, dunkler=True) == -13
+    assert naechste_belichtung(300, dunkler=True) == 210  # V4L2: 100 µs
+    assert naechste_belichtung(1, dunkler=True) == 1
+
+
+class HelleCap(FakeCap):
+    """Kamera, deren Bild ab Belichtung > -6 ausbrennt (Ringlicht an)."""
+
+    def __init__(self, karte):
+        super().__init__([karte])
+        self.karte = karte
+        self.exp = -3.0
+
+    def read(self):
+        time.sleep(0.005)
+        if self.exp > -6:
+            return True, cv2.convertScaleAbs(self.karte, alpha=3.0)
+        return True, self.karte
+
+    def get(self, prop):
+        return self.exp if prop == cv2.CAP_PROP_EXPOSURE else 42.0
+
+    def set(self, prop, wert):
+        if prop == cv2.CAP_PROP_EXPOSURE:
+            self.exp = wert
+        return super().set(prop, wert)
+
+
+def test_belichtung_wird_bei_ueberbelichtung_reduziert(monkeypatch):
+    monkeypatch.setattr(Kamera, "EINLAUF_S", 0.0)
+    karte = cv2.imread(str(TESTDATA / "nikolo_04.jpg"))
+    cap = HelleCap(karte)
+    k = Kamera(0, 640, 480, stabile_frames=5, bei_aufnahme=lambda b: None, sperren=True)
+    k._oeffnen = lambda: cap
+    k.start()
+    try:
+        ende = time.monotonic() + 10
+        while cap.exp > -6 and time.monotonic() < ende:
+            time.sleep(0.05)
+        time.sleep(0.5)
+    finally:
+        k.stop()
+    assert cap.exp == -6  # bis knapp unter die Ausbrenn-Grenze abgedunkelt, nicht weiter
+    assert k.status()["belichtung"] == -6

@@ -45,6 +45,10 @@ class Einstellungen:
     kamera_festhalten: bool = True
     # Fester Fokuswert (kameraabhängig), -1 = eingeregelten Wert übernehmen
     kamera_fokus: int = -1
+    # Festgehaltene Belichtung nachregeln, wenn das Bild ausbrennt (z. B. Ringlicht eingeschaltet)
+    belichtung_regeln: bool = True
+    # Ergebnis automatisch speichern, sobald die Karte weggenommen wird (nur wenn nichts zu prüfen ist)
+    beim_entnehmen_speichern: bool = False
     # Webcam im MJPG-Format öffnen: viele USB-Kameras liefern 1080p sonst nur mit ~5 Bildern/s
     kamera_mjpg: bool = True
     # Schützennummer erfassen (Ausschnitt anzeigen, Eingabe verlangen); False = ohne Nummer speichern
