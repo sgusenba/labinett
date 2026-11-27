@@ -363,3 +363,39 @@ def test_einmessen_kamera_ohne_belichtungswerte(monkeypatch):
     k, gespeichert = _einmessen_laufen(cap, monkeypatch, lambda k, g: k.einmess_meldung and "Treiber" in k.einmess_meldung)
     assert gespeichert == []
     assert "Treiber" in k.einmess_meldung and k.status()["belichtung_fest"] is None
+
+
+def _abspielen(frames, bei_aufnahme, **kw):
+    k = Kamera(0, 640, 480, stabile_frames=5, bei_aufnahme=bei_aufnahme, sperren=False, **kw)
+    cap = FakeCap(frames)
+    k._oeffnen = lambda: cap
+    k.start()
+    while cap.i < len(frames):
+        time.sleep(0.05)
+    k.stop()
+    return k
+
+
+def test_abgelehnte_aufnahme_wird_wiederholt():
+    """Offener Entwurf: Aufnahme abgelehnt -> sobald frei, lädt die liegende Karte von selbst."""
+    karte = cv2.imread(str(TESTDATA / "nikolo_04.jpg"))
+    versuche = []
+
+    def bei_aufnahme(bilder):
+        versuche.append(time.monotonic())
+        return len(versuche) >= 3  # die ersten zwei Versuche: vorige Karte noch offen
+
+    _abspielen([karte] * 120, bei_aufnahme)
+    assert len(versuche) == 3  # danach gesperrt, keine weitere Aufnahme derselben Karte
+
+
+def test_tausch_an_gleicher_stelle_ergibt_neue_aufnahme():
+    """Karte im Rahmen getauscht: neue liegt exakt dort, wo die alte lag."""
+    karte = cv2.imread(str(TESTDATA / "nikolo_04.jpg"))
+    hand = karte.copy()
+    hand[:] = (90, 110, 150)  # Hand/Unterlage während des Tauschs (~0,4 s)
+    aufnahmen = []
+    entnahmen = []
+    _abspielen([karte] * 15 + [hand] * 40 + [karte] * 60, aufnahmen.append,
+               bei_entnahme=lambda: entnahmen.append(1))
+    assert len(aufnahmen) == 2 and entnahmen == [1]

@@ -328,7 +328,7 @@ async function poll() {
     } else if (k.einmess_meldung && !k.fehler && !s.meldung && !k.wartet_auf_neue_karte) {
       $('kamerainfo').textContent = k.einmess_meldung;
     }
-    kartenzustand(k);
+    kartenzustand(k, s.karte_wartet);
     if (k.kamera_ok && !streamGestartet) { $('live').src = '/stream.mjpg'; $('live').hidden = false; $('keinekamera').hidden = true; streamGestartet = true; }
     if (s.entwurf && s.entwurf.id !== aktuellerEntwurf) {
       aktuellerEntwurf = s.entwurf.id;
@@ -341,7 +341,7 @@ async function poll() {
 
 // ---- Karte liegt / wurde weggenommen
 let letzteEntnahmen = null;
-function kartenzustand(k) {
+function kartenzustand(k, karteWartet) {
   const z = $('kartenzustand');
   const entnommen = letzteEntnahmen !== null && k.entnahmen > letzteEntnahmen;
   letzteEntnahmen = k.entnahmen ?? letzteEntnahmen;
@@ -352,6 +352,9 @@ function kartenzustand(k) {
     z.className = 'zustand weg'; z.hidden = false;
   } else if (entnommen) {
     z.textContent = 'Karte weggenommen – bereit für die nächste.'; z.className = 'zustand weg'; z.hidden = false;
+  } else if (karteWartet && $('btnSpeichern')) {
+    z.textContent = 'Neue Karte liegt – vorige mit Enter speichern oder mit Esc verwerfen, dann wird sie geladen.';
+    z.className = 'zustand liegt'; z.hidden = false;
   } else if (k.wartet_auf_neue_karte) {
     z.textContent = 'Aufgenommen – Karte jetzt wegnehmen.'; z.className = 'zustand liegt'; z.hidden = false;
   } else if (k.karte_erkannt && z.classList.contains('weg')) {

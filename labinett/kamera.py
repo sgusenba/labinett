@@ -85,8 +85,8 @@ class Kamera:
     ständig nachgeregelt wird. Was die Kamera nicht unterstützt, wird übersprungen.
     """
 
-    LEER_BIS_FREIGABE = 5  # so viele Frames ohne Karte, bis die Sperre fällt
-    LEER_MIN_S = 0.4  # … und mindestens so lange (bei wenigen Bildern/s)
+    LEER_BIS_FREIGABE = 3  # so viele Frames ohne Karte, bis die Sperre fällt
+    LEER_MIN_S = 0.3  # … und mindestens so lange (bei wenigen Bildern/s)
     # Belichtung nachregeln (nur wenn festgehalten): abdunkeln, wenn mehr als dieser
     # Anteil ausbrennt; aufhellen, wenn auf der Karte das hellste Prozent darunter liegt
     AUSGEBRANNT_MAX = 0.02
@@ -160,6 +160,7 @@ class Kamera:
         self._gesperrt = False  # nach Aufnahme bis Karte entfernt
         self._leer = 0
         self._leer_seit: float | None = None
+        self._weg_anders = False  # während der Abwesenheit sah die Stelle einmal deutlich anders aus
         # Aussehen der aufgenommenen Karte (kleines Graubild + Maske ihrer Fläche),
         # um die Entnahme am Bild statt nur am Verschwinden der Raute zu erkennen
         self._referenz: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None
@@ -506,14 +507,19 @@ class Kamera:
         cv2.fillConvexPoly(maske, np.round(ecken * f).astype(np.int32), 1)
         self._referenz = (g, maske.astype(bool), ecken.copy())
 
-    def _entnommen(self, frame: np.ndarray, ecken: np.ndarray | None) -> bool:
-        """Karte gilt als weg, wenn die Raute fehlt oder woanders liegt UND die Stelle anders aussieht."""
+    def _entnahme_zeichen(self, frame: np.ndarray, ecken: np.ndarray | None) -> tuple[bool, bool]:
+        """(Raute fehlt oder liegt woanders, Stelle sieht großteils anders aus).
+
+        Eine Entnahme zählt erst, wenn die Raute eine Weile fehlt UND dabei mindestens
+        einmal die Stelle deutlich anders aussah (Hand, leere Unterlage). Eine nur kurz
+        nicht erkannte Karte, die noch daliegt, löst so keine zweite Aufnahme aus;
+        eine an derselben Stelle getauschte Karte wird trotzdem als neue erkannt.
+        """
         if self._referenz is None:
-            return ecken is None
+            return ecken is None, True
         ref, maske, ref_ecken = self._referenz
-        if ecken is not None and ecken_ruhig(ecken, ref_ecken, 0.05):
-            return False  # liegt noch da
-        return karte_entfernt(ref, maske, frame)
+        weg = ecken is None or not ecken_ruhig(ecken, ref_ecken, 0.05)
+        return weg, weg and karte_entfernt(ref, maske, frame)
 
     def _glaetten(self, ecken: np.ndarray | None) -> None:
         if ecken is None:
@@ -591,10 +597,16 @@ class Kamera:
                 self._glaetten(ecken)
                 if self._gesperrt:
                     # nach einer Aufnahme: erst weiter, wenn die Karte wirklich weg ist
-                    if self._entnommen(frame, ecken):
+                    weg, anders = self._entnahme_zeichen(frame, ecken)
+                    if weg:
                         self._leer += 1
                         self._leer_seit = self._leer_seit or jetzt
-                        if self._leer >= self.LEER_BIS_FREIGABE and jetzt - self._leer_seit >= self.LEER_MIN_S:
+                        self._weg_anders = self._weg_anders or anders
+                        if (
+                            self._weg_anders
+                            and self._leer >= self.LEER_BIS_FREIGABE
+                            and jetzt - self._leer_seit >= self.LEER_MIN_S
+                        ):
                             self._gesperrt = False
                             self._referenz = None
                             self.entnahmen += 1
@@ -602,6 +614,7 @@ class Kamera:
                     else:
                         self._leer = 0
                         self._leer_seit = None
+                        self._weg_anders = False
                 if ecken is None:
                     self._stabil = 0
                     self._ruhig.clear()
@@ -619,6 +632,7 @@ class Kamera:
                         self._gesperrt = True
                         self._leer = 0
                         self._leer_seit = None
+                        self._weg_anders = False
                         self._merke_karte(frame, ecken)
                         fertig = [f.copy() for f in self._ruhig]
             letzte = ecken
@@ -629,8 +643,16 @@ class Kamera:
                     self.fehler = f"Entnahme: {e}"
             if fertig:
                 try:
-                    self.bei_aufnahme(fertig)
+                    angenommen = self.bei_aufnahme(fertig)
                 except Exception as e:  # Auswertung darf die Kamera nicht stoppen
                     self.fehler = f"Auswertung fehlgeschlagen: {e}"
+                    angenommen = True
+                if angenommen is False:
+                    # z. B. vorige Karte noch offen: nicht sperren, nach weiteren
+                    # ruhigen Frames erneut versuchen – sobald frei, lädt die Karte von selbst
+                    with self._lock:
+                        self._gesperrt = False
+                        self._referenz = None
+                        self._stabil = 0
         self._automatik_an(cap)  # Kamera nicht verstellt zurücklassen
         cap.release()
